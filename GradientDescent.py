@@ -17,9 +17,18 @@ def gradient_descent(cost_expression, variables=None, initial_values=None, learn
         raise ValueError("At least one variable is required.")
 
     symbols = [sp.Symbol(name.strip()) for name in variables]
+    if len(set(symbols)) != len(symbols) or set(symbols) != expression.free_symbols:
+        raise ValueError("Variables must list each cost-function variable exactly once.")
     values = np.asarray(initial_values, dtype=float).reshape(-1)
     if values.size != len(symbols):
         raise ValueError(f"Expected {len(symbols)} initial values, got {values.size}.")
+    learning_rate = float(learning_rate)
+    if not np.all(np.isfinite(values)) or not np.isfinite(learning_rate) or learning_rate <= 0:
+        raise ValueError("Initial values must be finite and learning rate must be finite and positive.")
+    if not np.isfinite(iterations) or int(iterations) != iterations or iterations < 0:
+        raise ValueError("Iterations must be a nonnegative integer.")
+    if tolerance is not None and (not np.isfinite(tolerance) or tolerance < 0):
+        raise ValueError("Tolerance must be finite and nonnegative.")
 
     gradient_expressions = [sp.diff(expression, symbol) for symbol in symbols]
     initial_gradient = _evaluate_gradient(gradient_expressions, symbols, values)
@@ -37,7 +46,6 @@ def gradient_descent(cost_expression, variables=None, initial_values=None, learn
         next_values = values - float(learning_rate) * gradient
         next_cost = _evaluate_expression(expression, symbols, next_values)
         next_gradient = _evaluate_gradient(gradient_expressions, symbols, next_values)
-        previous_cost = history[-1]["cost"]
 
         history.append(
             {
@@ -49,10 +57,9 @@ def gradient_descent(cost_expression, variables=None, initial_values=None, learn
         )
 
         parameter_change = np.max(np.abs(next_values - values))
-        cost_change = abs(next_cost - previous_cost)
         values = next_values
 
-        if tolerance is not None and (parameter_change <= tolerance or cost_change <= tolerance):
+        if tolerance is not None and parameter_change <= tolerance:
             break
 
     return expression, gradient_expressions, history
@@ -82,9 +89,12 @@ def _evaluate_expression(expression, symbols, values):
     substitutions = {symbol: value for symbol, value in zip(symbols, values)}
     result=expression.evalf(subs=substitutions)
     try:
-        return float(result)    
+        value = float(result)
     except (TypeError, ValueError):
         raise ValueError(f"Failed to convert expression {result} to float")
+    if not np.isfinite(value):
+        raise ValueError("The cost or gradient became nonfinite. Check the function domain and learning rate.")
+    return value
 
 
 def _evaluate_gradient(gradient_expressions, symbols, values):

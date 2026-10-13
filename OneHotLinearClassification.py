@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.preprocessing import PolynomialFeatures
 
-from CommonUtils import calculate_closed_form_weights, print_error_summary, print_label_vector, print_system_info, print_value, print_weights
+from CommonUtils import calculate_closed_form_weights, ensure_2d, print_error_summary, print_label_vector, print_system_info, print_value, print_weights
 
 
 def _encode_label_column(labels):
@@ -26,28 +26,34 @@ def prepare_class_targets(y):
         raw = raw.reshape(1, 1)
     elif raw.ndim == 1:
         raw = raw.reshape(-1, 1)
+    if raw.ndim != 2 or raw.size == 0:
+        raise ValueError("Classification targets must be a nonempty matrix.")
 
     has_text = any(isinstance(value, str) for value in raw.reshape(-1).tolist())
     if has_text:
+        if raw.shape[1] != 1:
+            raise ValueError("Text class labels must be entered in a single column.")
         labels = [str(value) for value in raw[:, 0].tolist()]
         encoded, class_labels = _encode_label_column(labels)
         return encoded, class_labels
 
-    numeric = np.asarray(y, dtype=float)
-    if numeric.ndim == 0:
-        numeric = numeric.reshape(1, 1)
-    elif numeric.ndim == 1:
-        numeric = numeric.reshape(-1, 1)
+    numeric = ensure_2d(y)
 
     if numeric.shape[1] == 1:
         labels = []
         for value in numeric[:, 0].tolist():
-            rounded = round(value)
-            labels.append(int(rounded) if np.isclose(value, rounded, atol=1e-10) else value)
+            labels.append(int(value) if value.is_integer() else value)
         encoded, class_labels = _encode_label_column(labels)
         return encoded, class_labels
 
-    return numeric, None
+    return validate_onehot_targets(numeric), None
+
+
+def validate_onehot_targets(y):
+    numeric = ensure_2d(y)
+    if not np.all((numeric == 0) | (numeric == 1)) or not np.all(np.sum(numeric, axis=1) == 1):
+        raise ValueError("One-hot targets must contain exactly one 1 per row and 0 in all other columns.")
+    return numeric
 
 
 def _print_predicted_classes(y_predicted, class_labels):

@@ -1,15 +1,10 @@
 import numpy as np
 
-from CommonUtils import pretty_print_array
+from CommonUtils import ensure_2d, pretty_print_array
 
 
 def _as_numeric_2d(value):
-    arr = np.asarray(value, dtype=float)
-    if arr.ndim == 0:
-        return arr.reshape(1, 1)
-    if arr.ndim == 1:
-        return arr.reshape(-1, 1)
-    return arr
+    return ensure_2d(value)
 
 
 def orient_pearson_inputs(X, Y):
@@ -44,7 +39,7 @@ def pearson_correlation_details(X, Y):
     standard_devY = np.std(Y, axis=0, keepdims=True)
     var_Y = np.var(Y, axis=0, keepdims=True)
 
-    if np.any(np.isclose(standard_devX, 0)) or np.any(np.isclose(standard_devY, 0)):
+    if np.any(standard_devX == 0) or np.any(standard_devY == 0):
         raise ValueError("Pearson correlation is undefined when X or Y has zero standard deviation.")
 
     centered_X = X - meanX

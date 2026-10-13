@@ -48,7 +48,7 @@ def k_means(X, initial_centroids, max_iterations=None):
 		iteration += 1
 		next_centroids = update_centroids(X, assignments, centroids)
 		next_assignments, next_distances, next_cost = assign_clusters(X, next_centroids)
-		converged = np.allclose(next_centroids, centroids, atol=1e-10, rtol=1e-10)
+		converged = np.array_equal(next_centroids, centroids) and np.array_equal(next_assignments, assignments)
 
 		if converged:
 			history[-1]["converged"] = True

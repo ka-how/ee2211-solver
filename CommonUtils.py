@@ -7,15 +7,21 @@ import sympy as sp
 def ensure_2d(array):
     arr = np.asarray(array, dtype=float)
     if arr.ndim == 0:
-        return arr.reshape(1, 1)
-    if arr.ndim == 1:
-        return arr.reshape(-1, 1)
+        arr = arr.reshape(1, 1)
+    elif arr.ndim == 1:
+        arr = arr.reshape(-1, 1)
+    if arr.ndim != 2 or arr.size == 0:
+        raise ValueError("Input must be a nonempty two-dimensional matrix.")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("Input must contain only finite numeric values.")
     return arr
 
 
 def normalize_array_text(raw_text):
     return (
         raw_text.strip()
+        .replace("−", "-")
+        .replace("–", "-")
         .replace("âˆ’", "-")
         .replace("â€“", "-")
         .replace("ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢", "-")
@@ -38,8 +44,6 @@ def parse_numeric_array(raw_text):
     text = normalize_array_text(raw_text)
     if not text:
         raise ValueError("Input is empty.")
-    if "\n" in text or "\r" in text:
-        raise ValueError("New lines are not supported. Separate rows with ';' or use a one-line Python array.")
 
     if text.startswith("["):
         try:
@@ -73,8 +77,6 @@ def parse_mixed_array(raw_text):
     text = normalize_array_text(raw_text)
     if not text:
         raise ValueError("Input is empty.")
-    if "\n" in text or "\r" in text:
-        raise ValueError("New lines are not supported. Separate rows with ';' or use a one-line Python array.")
 
     try:
         return parse_numeric_array(text)
@@ -84,9 +86,11 @@ def parse_mixed_array(raw_text):
                 parsed = ast.literal_eval(text)
                 arr = np.asarray(parsed, dtype=object)
                 if arr.ndim == 0:
-                    return arr.reshape(1, 1)
-                if arr.ndim == 1:
-                    return arr.reshape(-1, 1)
+                    arr = arr.reshape(1, 1)
+                elif arr.ndim == 1:
+                    arr = arr.reshape(-1, 1)
+                if arr.ndim != 2 or arr.size == 0:
+                    raise ValueError("Input must be a nonempty two-dimensional matrix.")
                 return arr
             except (SyntaxError, ValueError):
                 text = delimited_array_text(text)
@@ -118,14 +122,14 @@ def system_type(matrix):
         return "overdetermined"
     if cols > rows:
         return "underdetermined"
-    return "full rank"
+    return "square"
 
 
 def format_number(value):
     value = float(value)
     if not np.isfinite(value):
         return str(value)
-    if np.isclose(value, round(value), atol=1e-10):
+    if value == 0 or (round(value) != 0 and np.isclose(value, round(value), atol=1e-10, rtol=0)):
         return str(int(round(value)))
 
     abs_value = abs(value)
@@ -153,7 +157,7 @@ def python_array_literal(array):
     arr = ensure_2d(array)
     rows = []
     for row in arr.tolist():
-        rows.append("[" + ", ".join(format_number(value) for value in row) + "]")
+        rows.append("[" + ", ".join(repr(float(value)) for value in row) + "]")
     return "[" + ", ".join(rows) + "]"
 
 
@@ -214,41 +218,52 @@ def add_bias_column(matrix):
 
 
 def calculate_closed_form_weights(X, y):
+    X = ensure_2d(X)
+    y = ensure_2d(y)
+    validate_same_sample_count(X, y)
     system = system_type(X)
-    if system == "overdetermined":
-        w = np.linalg.inv(X.T @ X) @ X.T @ y
-    elif system == "underdetermined":
-        w = X.T @ np.linalg.inv(X @ X.T) @ y
-    else:
-        w = np.linalg.inv(X) @ y
+    # SVD least squares also handles dependent columns and minimum-norm fits.
+    w = np.linalg.lstsq(X, y, rcond=None)[0]
     return system, w
 
 
 def resolve_ridge_form(X, form="auto"):
+    if form not in {"auto", "primal form", "dual form"}:
+        raise ValueError(f"Unknown ridge form: {form}.")
     system = system_type(X)
     if form == "auto":
         if system == "overdetermined":
             return system, "primal form"
         if system == "underdetermined":
             return system, "dual form"
-        return system, "full rank"
+        return system, "primal form"
     return system, form
 
 
 def calculate_ridge_weights(X, y, ridge_lambda, form="auto"):
+    X = ensure_2d(X)
+    y = ensure_2d(y)
+    validate_same_sample_count(X, y)
+    ridge_lambda = float(ridge_lambda)
+    if not np.isfinite(ridge_lambda) or ridge_lambda < 0:
+        raise ValueError("Lambda must be finite and nonnegative.")
     system, resolved_form = resolve_ridge_form(X, form)
+    if ridge_lambda == 0:
+        return system, resolved_form, calculate_closed_form_weights(X, y)[1]
     if resolved_form == "primal form":
         identity = np.identity(X.shape[1])
-        w = np.linalg.inv(X.T @ X + ridge_lambda * identity) @ X.T @ y
+        w = np.linalg.solve(X.T @ X + ridge_lambda * identity, X.T @ y)
     elif resolved_form == "dual form":
         identity = np.identity(X.shape[0])
-        w = X.T @ np.linalg.inv(X @ X.T + ridge_lambda * identity) @ y
-    else:
-        w = np.linalg.inv(X) @ y
+        w = X.T @ np.linalg.solve(X @ X.T + ridge_lambda * identity, y)
     return system, resolved_form, w
 
 
 def squared_error_summary(y_true, y_pred):
+    y_true = ensure_2d(y_true)
+    y_pred = ensure_2d(y_pred)
+    if y_true.shape != y_pred.shape:
+        raise ValueError("Targets and predictions must have the same shape.")
     residual = y_pred - y_true
     squared_error = np.square(residual)
     sum_of_square = np.sum(squared_error, axis=0)

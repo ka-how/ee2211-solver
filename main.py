@@ -351,10 +351,10 @@ def inspect_array_details(array):
 	if inverse_exists:
 		pretty_print_array("inverse", np.linalg.inv(array), show_python=False)
 	if left_inverse_exists:
-		left_inverse = np.linalg.inv(array.T @ array) @ array.T
+		left_inverse = np.linalg.pinv(array)
 		pretty_print_array("left_inverse", left_inverse, show_python=False)
 	if right_inverse_exists:
-		right_inverse = array.T @ np.linalg.inv(array @ array.T)
+		right_inverse = np.linalg.pinv(array)
 		pretty_print_array("right_inverse", right_inverse, show_python=False)
 
 
@@ -546,15 +546,16 @@ def run_gradient_descent():
 
 def run_classification_tree_impurity():
 	print_section("Classification Tree Impurity")
-	print("Enter one row per node; columns are class counts. For a depth-1 overall impurity, enter child nodes only.")
+	print("Enter the parent row first, then its child rows; columns are class counts in the same order. Only children are weighted.")
 	class_counts = input_array("class counts by node")
+	includes_parent = prompt_yes_no("First row is the parent node", default=True)
 	measure = prompt_choice("Impurity measure", ["all", "gini", "entropy", "misclassification"], default="all")
-	print_classification_impurity_summary(class_counts, measure=measure)
+	print_classification_impurity_summary(class_counts, measure=measure, includes_parent=includes_parent)
 
 
 def run_regression_tree_mse():
 	print_section("Regression Tree MSE/Split")
-	print("Enter one-dimensional x values and matching y values. A threshold uses left: x <= threshold, right: x > threshold.")
+	print("Enter one-dimensional x values and matching y values. A threshold uses left: x < threshold, right: x >= threshold.")
 	X = input_array("x values")
 	Y = input_array("y values")
 	validate_same_sample_count(X, Y)

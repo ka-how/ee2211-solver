@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "solver"
 version = "0.1.0"
-description = "Add your description here"
+description = "EE2211 matrix, regression, decision tree, and clustering calculators"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -9,4 +13,12 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "streamlit>=1.57.0",
     "sympy>=1.14.0",
+]
+
+[tool.setuptools]
+py-modules = [
+    "CommonUtils", "DecisionTreeUtils", "GradientDescent", "KMeansUtils",
+    "LinearRegression", "OneHotLinearClassification", "PolynomialRegression",
+    "RidgePolynomialRegression", "RidgeRegression", "pearson_correlation",
+    "main", "webui",
 ]

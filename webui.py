@@ -17,6 +17,7 @@ from CommonUtils import (
     add_bias_column,
     calculate_closed_form_weights,
     calculate_ridge_weights,
+    ensure_2d,
     format_number,
     parse_mixed_array,
     parse_numeric_array,
@@ -27,13 +28,13 @@ from CommonUtils import (
 )
 from DecisionTreeUtils import (
     CLASSIFICATION_MEASURES,
-    classification_impurity_summary,
+    classification_split_details,
     find_best_regression_split,
     regression_threshold_summary,
 )
 from GradientDescent import gradient_descent, infer_variables
 from KMeansUtils import k_means
-from OneHotLinearClassification import prepare_class_targets
+from OneHotLinearClassification import prepare_class_targets, validate_onehot_targets
 from pearson_correlation import pearson_correlation_details
 
 
@@ -74,6 +75,7 @@ PERSISTED_WIDGET_KEYS = (
     "tree_mode",
     "tree_counts_raw",
     "tree_measure",
+    "tree_includes_parent",
     "tree_x_raw",
     "tree_y_raw",
     "tree_threshold",
@@ -288,7 +290,7 @@ def serialize_cache_entry(entry):
         "kind": str(entry.get("kind", "")),
         "shape": str(entry.get("shape", shape_text(value))),
         "value": json_safe_value(value),
-        "text": str(entry.get("text", matrix_plain_text(value))),
+        "text": matrix_plain_text(value),
         "created_at": str(entry.get("created_at", "")),
     }
 
@@ -296,7 +298,10 @@ def serialize_cache_entry(entry):
 def deserialize_cache_entry(entry):
     if not isinstance(entry, dict):
         return None
-    value = as_2d_any(entry.get("value", []))
+    try:
+        value = as_2d_any(entry.get("value", []))
+    except (TypeError, ValueError):
+        return None
     return {
         "id": str(entry.get("id") or uuid.uuid4().hex),
         "name": str(entry.get("name", "")),
@@ -304,7 +309,7 @@ def deserialize_cache_entry(entry):
         "kind": str(entry.get("kind", "")),
         "shape": str(entry.get("shape") or shape_text(value)),
         "value": value,
-        "text": str(entry.get("text") or matrix_plain_text(value)),
+        "text": matrix_plain_text(value),
         "created_at": str(entry.get("created_at", "")),
     }
 
@@ -457,7 +462,7 @@ def render_regression_tab():
             with test_col_x:
                 X_test, _ = matrix_input("X_test", "reg_x_test", default="4\n5")
             with test_col_y:
-                Y_test, _ = matrix_input("Y_test (optional)", "reg_y_test", default="", allow_mixed=allow_mixed_y)
+                Y_test, y_test_status = matrix_input("Y_test (optional)", "reg_y_test", default="", allow_mixed=allow_mixed_y)
 
         submitted = st.form_submit_button("Fit")
 
@@ -470,6 +475,9 @@ def render_regression_tab():
         return
     if predict_test and X_test is None:
         st.error("X_test is enabled but no valid test matrix was provided.")
+        return
+    if predict_test and y_test_status == "invalid":
+        st.error("Correct Y_test or leave it empty before fitting.")
         return
 
     try:
@@ -667,8 +675,10 @@ def render_decision_tree_tab():
 
 
 def render_classification_tree_panel():
+    st.caption("By default, enter the parent first and its disjoint child nodes below it. Only children contribute to weighted impurity. Uncheck the parent option to enter children only.")
     with st.form("classification_tree_form", border=True):
-        class_counts, _ = matrix_input("Class counts by node", "tree_counts", default="2 5\n6 0")
+        class_counts, _ = matrix_input("Class counts by node", "tree_counts", default="8 5 5\n6 4 0\n2 1 5")
+        includes_parent = st.checkbox("First row is the parent node", value=True, key="tree_includes_parent")
         measure = st.selectbox("Impurity measure", ("all", *CLASSIFICATION_MEASURES), key="tree_measure")
         submitted = st.form_submit_button("Calculate")
 
@@ -684,31 +694,36 @@ def render_classification_tree_panel():
         measures = CLASSIFICATION_MEASURES if measure == "all" else (measure,)
         summaries = []
         for item in measures:
-            node_sizes, impurities, weighted_impurity = classification_impurity_summary(class_counts, item)
-            summaries.append((item, node_sizes, impurities, weighted_impurity))
+            details = classification_split_details(class_counts, item, includes_parent)
+            summaries.append((item, details))
     except Exception as exc:
         st.error(str(exc))
         return
 
     record_matrix("class_counts", "Decision tree classification input", class_counts, kind="input")
-    for item, node_sizes, impurities, weighted_impurity in summaries:
-        record_matrix(f"{item}_per_node", "Decision tree impurity result", impurities.reshape(-1, 1), kind="output")
-        record_matrix(f"weighted_{item}", "Decision tree impurity result", [[weighted_impurity]], kind="output")
+    for item, details in summaries:
+        record_matrix(f"{item}_per_node", "Decision tree impurity result", details["impurities"].reshape(-1, 1), kind="output")
+        record_matrix(f"weighted_{item}_per_node", "Decision tree impurity result", details["weighted_contributions"].reshape(-1, 1), kind="output")
+        record_matrix(f"weighted_{item}", "Decision tree impurity result", [[details["weighted_impurity"]]], kind="output")
 
     st.markdown("#### Class Counts")
     render_matrix("class_counts", class_counts)
-    for item, node_sizes, impurities, weighted_impurity in summaries:
+    for item, details in summaries:
         st.markdown(f"#### {item.title()}")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            render_matrix(f"{item}_per_node", impurities.reshape(-1, 1))
-        with col2:
-            render_matrix("node_sizes", node_sizes.reshape(-1, 1))
-        with col3:
-            render_matrix(f"weighted_{item}", [[weighted_impurity]])
+        st.dataframe(pd.DataFrame({
+            "Child node": np.arange(1, len(details["node_sizes"]) + 1),
+            "Samples": details["node_sizes"],
+            "Weight": details["weights"],
+            "Impurity": details["impurities"],
+            "Weighted contribution": details["weighted_contributions"],
+        }), width="stretch", hide_index=True)
+        render_matrix(f"weighted_{item}", [[details["weighted_impurity"]]])
+        render_matrix(f"parent_{item}", [[details["parent_impurity"]]])
+        render_matrix(f"{item}_gain", [[details["gain"]]])
 
 
 def render_regression_tree_panel():
+    st.caption("Split convention from the course book: left x < threshold, right x >= threshold. Enter one feature and one target per sample.")
     with st.form("regression_tree_form", border=True):
         col_x, col_y = st.columns(2)
         with col_x:
@@ -728,6 +743,10 @@ def render_regression_tree_panel():
         return
     if X is None or Y is None:
         st.error("Both x and y are required.")
+        return
+
+    if not threshold_text.strip() and not find_best:
+        st.error("Enter a threshold or enable Find best one-level split.")
         return
 
     threshold = None
@@ -802,7 +821,7 @@ def render_kmeans_tab():
             "points": X.shape[0],
             "features": X.shape[1],
             "k": centroids.shape[0],
-            "iterations": len(history),
+            "iterations": history[-1]["iteration"],
         }
     )
     for item in history:
@@ -945,9 +964,9 @@ def inspect_matrix(array):
     if inverse_exists:
         matrices.append(("inverse", np.linalg.inv(matrix)))
     if left_inverse_exists:
-        matrices.append(("left_inverse", np.linalg.inv(matrix.T @ matrix) @ matrix.T))
+        matrices.append(("left_inverse", np.linalg.pinv(matrix)))
     if right_inverse_exists:
-        matrices.append(("right_inverse", matrix.T @ np.linalg.inv(matrix @ matrix.T)))
+        matrices.append(("right_inverse", np.linalg.pinv(matrix)))
     return details, matrices
 
 
@@ -1046,7 +1065,7 @@ def fit_regression_model(
         test_pred = X_test_model @ w # type: ignore
         test_class = classify_predictions(test_pred, resolved_target_mode, class_labels)
         if Y_test is not None:
-            test_target_matrix = prepare_test_target_matrix(Y_test, resolved_target_mode, class_labels)
+            test_target_matrix = prepare_test_target_matrix(Y_test, resolved_target_mode, class_labels, target_matrix.shape[1])
             validate_same_sample_count(X_test, test_target_matrix)
             if test_target_matrix.shape[1] != test_pred.shape[1]:
                 raise ValueError(
@@ -1107,7 +1126,7 @@ def resolve_target_mode(Y, requested):
     unique = set(np.unique(numeric).tolist())
     if numeric.shape[1] == 1 and unique.issubset({-1.0, 1.0}):
         return "Sign classification"
-    if numeric.shape[1] > 1:
+    if numeric.shape[1] > 1 and np.all((numeric == 0) | (numeric == 1)) and np.all(np.sum(numeric, axis=1) == 1):
         return "One-hot classification"
     return "Numeric regression"
 
@@ -1118,15 +1137,21 @@ def prepare_target_matrix(Y, target_mode):
     return numeric_matrix(Y), None
 
 
-def prepare_test_target_matrix(Y_test, target_mode, class_labels):
+def prepare_test_target_matrix(Y_test, target_mode, class_labels, class_count=None):
     if target_mode != "One-hot classification":
         return numeric_matrix(Y_test)
 
     arr = as_2d_any(Y_test)
     if arr.shape[1] > 1:
-        return numeric_matrix(arr)
+        return validate_onehot_targets(arr)
     if class_labels is None:
-        encoded, _ = prepare_class_targets(Y_test)
+        if class_count is None:
+            raise ValueError("The training class count is required to encode test class indices.")
+        indices = numeric_matrix(arr).reshape(-1)
+        if np.any(indices != np.floor(indices)) or np.any(indices < 0) or np.any(indices >= class_count):
+            raise ValueError("For one-hot training targets, test labels must be zero-based class column indices.")
+        encoded = np.zeros((len(indices), class_count), dtype=float)
+        encoded[np.arange(len(indices)), indices.astype(int)] = 1
         return encoded
 
     class_to_index = {label: index for index, label in enumerate(class_labels)}
@@ -1354,19 +1379,16 @@ def title_from_name(name):
 def as_2d_any(value):
     arr = np.asarray(value, dtype=object)
     if arr.ndim == 0:
-        return arr.reshape(1, 1)
-    if arr.ndim == 1:
-        return arr.reshape(-1, 1)
+        arr = arr.reshape(1, 1)
+    elif arr.ndim == 1:
+        arr = arr.reshape(-1, 1)
+    if arr.ndim != 2 or arr.size == 0:
+        raise ValueError("Input must be a nonempty two-dimensional matrix.")
     return arr
 
 
 def numeric_matrix(value):
-    arr = np.asarray(value, dtype=float)
-    if arr.ndim == 0:
-        return arr.reshape(1, 1)
-    if arr.ndim == 1:
-        return arr.reshape(-1, 1)
-    return arr
+    return ensure_2d(value)
 
 
 def contains_text(matrix):
@@ -1426,7 +1448,7 @@ def shape_text(matrix):
 def matrix_editor_text(matrix):
     arr = as_2d_any(matrix)
     if all(is_numeric_scalar(value) for value in arr.reshape(-1).tolist()):
-        return "\n".join(" ".join(format_number(float(value)) for value in row) for row in arr.tolist())
+        return "\n".join(" ".join(repr(float(value)) for value in row) for row in arr.tolist())
     return json.dumps(arr.tolist(), ensure_ascii=False)
 
 

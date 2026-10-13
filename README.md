@@ -28,6 +28,10 @@ you prefer command line tools.
 
 ## Beginner Setup
 
+For worked examples, input formats, settings, and outputs for every calculator,
+see the [EE2211 Solver User Guide](docs/EE2211_Solver_User_Guide.pdf).
+It covers all eight WebUI tabs and all fifteen terminal tools.
+
 You do not need to be good at Python to run this.
 
 The easiest option is to use the hosted WebUI:
@@ -211,6 +215,29 @@ or any intermediate result and paste it into another tab.
 The app stores temporary WebUI state and cached matrices under `temp/`. That
 folder is ignored by Git.
 
+Copied arrays and transposed inputs retain full stored floating-point precision,
+even though displayed results are rounded for readability.
+
+## Decision Tree Inputs
+
+Classification impurity defaults to a parent row followed by its child rows.
+Keep **First row is the parent node** checked for:
+
+```text
+8 5 5
+6 4 0
+2 1 5
+```
+
+The parent row must equal the sum of the children in each class. Only the two
+children are weighted: their weights are `10/18` and `8/18`, giving weighted
+Gini impurity `0.5027777778`. The result shows each child's contribution,
+the parent impurity, and the impurity gain.
+
+If you enter children only, uncheck the parent option. For regression trees,
+the course book's threshold convention is **left: x < threshold** and
+**right: x >= threshold**, including when a sample equals the threshold.
+
 ## Optional: Terminal Version
 
 If you prefer a text menu instead of the browser app, run this from the repo
@@ -236,6 +263,15 @@ python run_tests.py
 
 If you used `python3` or `py` during setup, use that instead.
 With `uv`, run `uv run python run_tests.py` instead.
+
+To exercise the WebUI forms with isolated saved state, run:
+
+```bash
+python -m unittest test_webui -v
+```
+
+The printable guide can be regenerated with `python docs/build_user_guide.py`.
+Its builder uses `reportlab`, which is needed only when rebuilding the guide.
 
 ## Exam Rules And Academic Integrity
 
