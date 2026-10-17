@@ -114,8 +114,6 @@ def main():
     configure_page()
     ensure_state()
 
-    render_workspace_header()
-
     tabs = st.tabs(
         [
             "Array",
@@ -171,111 +169,6 @@ def configure_page():
         .block-container {
           padding: 3.5rem 2.5rem 4rem;
           max-width: 1240px;
-        }
-        .workspace-header {
-          margin-bottom: 0.35rem;
-        }
-        .workspace-masthead {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 1rem;
-          padding-bottom: 1.25rem;
-          border-bottom: 1px solid var(--solver-border);
-          color: var(--workspace-muted);
-          font: 0.69rem 'Cascadia Code', Consolas, monospace;
-          letter-spacing: 0.11em;
-          text-transform: uppercase;
-        }
-        .workspace-identity {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          color: #e6edf3;
-        }
-        .workspace-mark {
-          display: grid;
-          grid-template-columns: repeat(2, 6px);
-          gap: 4px;
-        }
-        .workspace-mark i {
-          width: 6px;
-          height: 6px;
-          background: var(--workspace-accent);
-        }
-        .workspace-mark i:last-child {
-          background: transparent;
-          border: 1px solid var(--workspace-accent);
-        }
-        .workspace-hero {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) 260px;
-          gap: 2rem;
-          align-items: center;
-          padding: 2rem 0 1.75rem;
-        }
-        .workspace-eyebrow {
-          margin: 0 0 0.75rem;
-          color: var(--workspace-accent);
-          font: 0.68rem 'Cascadia Code', Consolas, monospace;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-        }
-        .workspace-hero h1 {
-          color: #f1f5f9;
-          font-size: clamp(1.9rem, 3.4vw, 2.65rem);
-          font-weight: 600;
-          letter-spacing: -0.045em;
-          line-height: 1.12;
-          padding: 0;
-          margin: 0 0 0.85rem;
-        }
-        .workspace-description {
-          max-width: 440px;
-          margin: 0;
-          color: var(--workspace-muted);
-          font-size: 0.91rem;
-          line-height: 1.65;
-        }
-        .workspace-equation {
-          padding: 1.1rem 1.3rem;
-          border: 1px solid var(--solver-border);
-          border-radius: 12px;
-          background-color: #101923;
-          background-image: radial-gradient(#2a3947 0.7px, transparent 0.7px);
-          background-size: 14px 14px;
-        }
-        .workspace-equation-label {
-          color: var(--workspace-muted);
-          font: 0.6rem 'Cascadia Code', Consolas, monospace;
-          letter-spacing: 0.08em;
-        }
-        .workspace-equation-body {
-          display: flex;
-          gap: 0.9rem;
-          align-items: center;
-          justify-content: center;
-          padding: 1.1rem 0;
-          color: var(--workspace-accent);
-          font: 1.1rem 'Cascadia Code', Consolas, monospace;
-        }
-        .workspace-matrix {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 0.25rem 0.75rem;
-          padding: 0.25rem 0.6rem;
-          border-left: 2px solid #6ee7c080;
-          border-right: 2px solid #6ee7c080;
-          color: #dce7f1;
-          font-size: 0.9rem;
-        }
-        .workspace-equation-footer {
-          border-top: 1px solid var(--solver-border);
-          padding-top: 0.65rem;
-          color: var(--workspace-muted);
-          text-align: center;
-          font: 0.57rem 'Cascadia Code', Consolas, monospace;
-          letter-spacing: 0.09em;
         }
         [role="tablist"] {
           gap: 0.25rem;
@@ -420,16 +313,6 @@ def configure_page():
           .block-container {
             padding: 3rem 1.1rem 2rem;
           }
-          .workspace-hero {
-            grid-template-columns: 1fr;
-            padding: 1.5rem 0;
-          }
-          .workspace-equation, .workspace-topics {
-            display: none;
-          }
-          .workspace-hero h1 {
-            font-size: 2rem;
-          }
           [role="tab"] {
             flex: 0 0 auto;
           }
@@ -443,39 +326,6 @@ def configure_page():
           }
         }
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_workspace_header():
-    st.markdown(
-        """
-        <header class="workspace-header">
-          <div class="workspace-masthead">
-            <div class="workspace-identity">
-              <span class="workspace-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-              <span>Calculation workspace</span>
-            </div>
-            <span class="workspace-topics">Matrices / Models / Probability</span>
-          </div>
-          <div class="workspace-hero">
-            <div>
-              <p class="workspace-eyebrow">A space to work things out</p>
-              <h1>Work through the numbers.</h1>
-              <p class="workspace-description">Explore your data, test a model, or solve an equation.
-              Choose a tool below to get started.</p>
-            </div>
-            <div class="workspace-equation" aria-hidden="true">
-              <div class="workspace-equation-label">LINEAR SYSTEM / Xw = y</div>
-              <div class="workspace-equation-body">
-                <span class="workspace-matrix"><span>1</span><span>1</span><span>1</span><span>2</span></span>
-                <span>w</span><span>=</span><span>y</span>
-              </div>
-              <div class="workspace-equation-footer">INPUT &nbsp; &rarr; &nbsp; COMPUTE &nbsp; &rarr; &nbsp; INSIGHT</div>
-            </div>
-          </div>
-        </header>
         """,
         unsafe_allow_html=True,
     )
