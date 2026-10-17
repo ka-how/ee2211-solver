@@ -1,10 +1,12 @@
 import ast
+from fractions import Fraction
+import re
 
 import numpy as np
 import sympy as sp
 
 
-def ensure_2d(array):
+def ensure_2d(array, allow_missing=False):
     arr = np.asarray(array, dtype=float)
     if arr.ndim == 0:
         arr = arr.reshape(1, 1)
@@ -12,7 +14,8 @@ def ensure_2d(array):
         arr = arr.reshape(-1, 1)
     if arr.ndim != 2 or arr.size == 0:
         raise ValueError("Input must be a nonempty two-dimensional matrix.")
-    if not np.all(np.isfinite(arr)):
+    valid = np.isfinite(arr) | (np.isnan(arr) if allow_missing else False)
+    if not np.all(valid):
         raise ValueError("Input must contain only finite numeric values.")
     return arr
 
@@ -40,15 +43,46 @@ def delimited_array_text(text):
     return stripped
 
 
-def parse_numeric_array(raw_text):
+def parse_number(text):
+    """Read a decimal, scientific notation, or a fraction without evaluating code."""
+    try:
+        value = float(Fraction(str(text).strip()))
+    except (ValueError, ZeroDivisionError, OverflowError):
+        raise ValueError(f"Expected a finite number or fraction, got {text!r}.") from None
+    if not np.isfinite(value):
+        raise ValueError("Numbers must be finite.")
+    return value
+
+
+def _numeric_literal(node):
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return [_numeric_literal(item) for item in node.elts]
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float, str, type(None))):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        value = _numeric_literal(node.operand)
+        if not isinstance(value, (int, float)):
+            raise ValueError("A sign must apply to a number.")
+        return value if isinstance(node.op, ast.UAdd) else -value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        try:
+            return _numeric_literal(node.left) / _numeric_literal(node.right)
+        except (TypeError, ZeroDivisionError):
+            raise ValueError("Fractions require numeric values and a nonzero denominator.") from None
+    raise ValueError("Use numbers, fractions, or nested numeric lists.")
+
+
+def parse_numeric_array(raw_text, allow_missing=False):
     text = normalize_array_text(raw_text)
     if not text:
         raise ValueError("Input is empty.")
+    if allow_missing:
+        text = re.sub(r"(?i)(?<![\w.])(?:na|nan|none|null|\?)(?![\w.])", "None", text)
 
     if text.startswith("["):
         try:
-            parsed = ast.literal_eval(text)
-            return ensure_2d(parsed)
+            parsed = _numeric_literal(ast.parse(text, mode="eval").body)
+            return ensure_2d(parsed, allow_missing=allow_missing)
         except (SyntaxError, ValueError):
             text = delimited_array_text(text)
 
@@ -61,7 +95,7 @@ def parse_numeric_array(raw_text):
             parts = [part.strip() for part in stripped.split(",") if part.strip()]
         else:
             parts = [part for part in stripped.split() if part]
-        rows.append([float(part) for part in parts])
+        rows.append([np.nan if allow_missing and part == "None" else parse_number(part) for part in parts])
 
     if not rows:
         raise ValueError("No numeric rows were found.")
@@ -70,7 +104,7 @@ def parse_numeric_array(raw_text):
     if len(widths) != 1:
         raise ValueError("All rows must have the same number of values.")
 
-    return ensure_2d(rows)
+    return ensure_2d(rows, allow_missing=allow_missing)
 
 
 def parse_mixed_array(raw_text):

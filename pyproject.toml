@@ -17,8 +17,8 @@ dependencies = [
 
 [tool.setuptools]
 py-modules = [
-    "CommonUtils", "DecisionTreeUtils", "GradientDescent", "KMeansUtils",
-    "LinearRegression", "OneHotLinearClassification", "PolynomialRegression",
-    "RidgePolynomialRegression", "RidgeRegression", "pearson_correlation",
+    "CommonUtils", "DataPreparation", "DecisionTreeUtils", "FunctionUtils", "GradientDescent", "KMeansUtils",
+    "LinearRegression", "MatrixCalculus", "OneHotLinearClassification", "PolynomialRegression",
+    "ProbabilityUtils", "RegressionUtils", "RidgePolynomialRegression", "RidgeRegression", "pearson_correlation",
     "main", "webui",
 ]

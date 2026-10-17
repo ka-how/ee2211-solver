@@ -9,6 +9,7 @@ from CommonUtils import (
 	format_number,
 	parse_mixed_array,
 	parse_numeric_array,
+	parse_number,
 	pretty_print_array,
 	print_error_summary,
 	validate_same_feature_count,
@@ -22,6 +23,11 @@ from DecisionTreeUtils import (
 	find_best_regression_split,
 )
 from GradientDescent import gradient_descent, infer_variables, print_gradient_descent_result
+from DataPreparation import PREPARATION_METHODS, descriptive_statistics, matrix_calculation, prepare_data
+from FunctionUtils import analyze_functions, check_minimum, parse_functions
+from MatrixCalculus import differentiate_matrix
+from ProbabilityUtils import bayes_update, compare_grouped_rates, density_probability, discrete_distribution, event_probabilities, sampling_without_replacement
+from RegressionUtils import polynomial_features_details, regression_shapes, solve_normal_equations
 from KMeansUtils import k_means, print_k_means_result
 
 from LinearRegression import linear_regression
@@ -54,7 +60,9 @@ MENU_TEXT = """EE2211 Solver
 | 13. Classification tree impurity                       |
 | 14. Regression tree MSE/split                          |
 | 15. K-means clustering                                 |
-+--------------------------------------------------------+"""
++--------------------------------------------------------+
+Extra tools: matrix, prepare, probability, functions,
+             normal, features, minimum, matdiff, stats"""
 
 INPUT_HELP = (
 	"Input format: exactly one line. Separate rows with ';', e.g. 1 2; 3 4.\n"
@@ -93,7 +101,7 @@ def prompt_float(prompt, default=None):
 		if not raw and default is not None:
 			return float(default)
 		try:
-			return float(raw)
+			return parse_number(raw)
 		except ValueError:
 			print("Please enter a numeric value.")
 
@@ -162,7 +170,7 @@ def prompt_optional_float(prompt):
 	if not raw:
 		return None
 	try:
-		return float(raw)
+		return parse_number(raw)
 	except ValueError:
 		print("Please enter a numeric value or leave blank to skip.")
 		return prompt_optional_float(prompt)
@@ -202,7 +210,7 @@ def prompt_gradient_initial_values(variables):
 			continue
 
 		try:
-			return np.asarray([float(part) for part in parts], dtype=float)
+			return np.asarray([parse_number(part) for part in parts], dtype=float)
 		except ValueError:
 			print("Please enter numeric initial values separated by commas.")
 
@@ -585,6 +593,187 @@ def run_k_means():
 		cache_result(history[-1]["centroids"])
 
 
+def input_missing_array(name):
+	while True:
+		print(f"{name}: one-line rows separated by ';'; use ? or NA for missing values.")
+		try:
+			return parse_numeric_array(input("> "), allow_missing=True)
+		except ValueError as exc:
+			print(f"Input error: {exc}")
+
+
+def run_matrix_calculation():
+	operation = prompt_choice("Operation", ["Matrix product", "Dot product", "Add", "Subtract", "Elementwise product", "Trace"], default="Dot product")
+	A = input_array("A")
+	B = None if operation == "Trace" else input_array("B")
+	result = matrix_calculation(A, operation, B)
+	pretty_print_array("result", result)
+	cache_result(result)
+
+
+def run_data_preparation():
+	method = prompt_choice("Transform", PREPARATION_METHODS, default="Min-max scaling")
+	data = input_missing_array("Data")
+	first = second = None
+	if method != "Mean imputation" and prompt_yes_no("Use supplied feature parameters", default=False):
+		first = input_array("minimums" if method == "Min-max scaling" else "means")
+		second = input_array("maximums" if method == "Min-max scaling" else "standard deviations")
+	marker = prompt_optional_float("Missing numeric marker")
+	details = prepare_data(data, method, first=first, second=second, missing_marker=marker)
+	pretty_print_array("prepared_data", details["result"])
+	pretty_print_array("first_parameter", details["first"])
+	if details["second"] is not None:
+		pretty_print_array("second_parameter", details["second"])
+	cache_result(details["result"])
+
+
+def run_function_analysis():
+	raw = input("Function outputs separated by ';': ")
+	variable_text = input("Variable order [infer alphabetically]: ").strip()
+	variables = variable_text.split(",") if variable_text else None
+	_, symbols = parse_functions(raw, variables)
+	point = prompt_gradient_initial_values([str(symbol) for symbol in symbols]) if symbols else []
+	details = analyze_functions(raw, point, variables)
+	pretty_print_array("function_value", details["value"])
+	if symbols:
+		pretty_print_array("gradient" if details["gradient"] is not None else "jacobian", details["jacobian_at_point"].T if details["gradient"] is not None else details["jacobian_at_point"])
+		print("Jacobian:", details["jacobian"])
+	print("Dependence on inputs:", ", ".join(details["dependence"]))
+	interpretation = prompt_choice("Interpretation", ["numeric", "sign", "class scores"], default="numeric")
+	if interpretation == "sign":
+		if details["value"].size != 1:
+			raise ValueError("Sign classification requires a scalar output.")
+		print("Predicted label:", int(np.sign(details["value"].item())))
+	elif interpretation == "class scores":
+		print("Predicted class column (zero-based):", int(np.argmax(details["value"])))
+	cache_result(details["value"])
+
+
+def run_probability_calculation():
+	mode = prompt_choice("Probability task", ["discrete", "bayes", "events", "density", "sampling", "rates"], default="discrete")
+	if mode == "sampling":
+		total = prompt_int("Total items", default=6, minimum=1)
+		marked = prompt_int("Marked items", default=2, minimum=0)
+		draws = prompt_int("Draws", default=2, minimum=0)
+		comparison = prompt_choice("Event", [">=", ">", "<=", "<", "=", "between"], default=">=")
+		boundary = prompt_int("Count boundary or inclusive lower bound", default=1, minimum=0)
+		upper = prompt_int("Inclusive upper bound", minimum=0) if comparison == "between" else None
+		details = sampling_without_replacement(total, marked, draws, comparison, boundary, upper)
+		print("Event probability:", format_number(details["event_probability"]), "Exact:", details["exact_probability"])
+		pretty_print_array("count_distribution", np.column_stack((details["outcomes"], details["probabilities"])))
+		cache_result([[details["event_probability"]]])
+		return
+	if mode == "rates":
+		details = compare_grouped_rates(input_array("A successes, A total, B successes, B total per group"))
+		pretty_print_array("group_rates_A_B", details["rates"])
+		pretty_print_array("pooled_rates_A_B", details["pooled"])
+		print("Simpson's reversal:", details["reversal"])
+		cache_result(details["pooled"].reshape(1, -1))
+		return
+	if mode in {"discrete", "bayes"}:
+		table = input_missing_array("Outcome/probability pairs" if mode == "discrete" else "Prior/likelihood pairs")
+		if table.shape[1] != 2:
+			raise ValueError("Enter two values in every row.")
+		if mode == "discrete":
+			comparison = prompt_choice("Event", [">=", ">", "<=", "<", "=", "between"], default=">=")
+			boundary = prompt_float("Boundary or inclusive lower bound", default=0)
+			upper = prompt_float("Inclusive upper bound") if comparison == "between" else None
+			details = discrete_distribution(table[:, 0], table[:, 1], comparison, boundary, upper)
+			for name in ("event_probability", "mean", "variance", "std"):
+				print(f"{name}: {format_number(details[name])}")
+			pretty_print_array("completed_distribution", np.column_stack((details["outcomes"], details["probabilities"])))
+			cache_result([[details["event_probability"]]])
+		else:
+			details = bayes_update(table[:, 0], table[:, 1], prompt_yes_no("Event occurred", default=True))
+			print("Evidence probability:", format_number(details["evidence"]))
+			pretty_print_array("posterior", details["posterior"])
+			cache_result(details["posterior"])
+	elif mode == "events":
+		p_a, p_b = prompt_float("P(A)"), prompt_float("P(B)")
+		kind = prompt_choice("Known probability", ["intersection", "union"], default="intersection")
+		details = event_probabilities(p_a, p_b, prompt_float(f"P(A {kind} B)"), kind)
+		for name in ("intersection", "union", "p_a_given_b", "p_b_given_a", "independent", "mutually_exclusive"):
+			print(f"{name}: {details[name] if details[name] is not None else 'undefined'}")
+		cache_result(details["joint_table"])
+	else:
+		density = input("Density f(x): ")
+		low, high = prompt_float("Support minimum", default=0), prompt_float("Support maximum", default=1)
+		query_low, query_high = prompt_float("Query minimum"), prompt_float("Query maximum")
+		details = density_probability(density, low, high, query_low, query_high)
+		print("Interval probability:", format_number(details["probability"]))
+		cache_result([[details["probability"]]])
+
+
+def run_normal_equations():
+	gram, rhs = input_array("X.T @ X"), input_array("X.T @ Y")
+	details = solve_normal_equations(gram, rhs, prompt_float("Lambda (0 for ordinary least squares)", default=0))
+	pretty_print_array("w", details["w"])
+	rows = input_optional_array("Model rows for prediction, including any bias/polynomial columns")
+	if rows is not None:
+		if rows.shape[1] != details["w"].shape[0]:
+			raise ValueError("Prediction rows must have one column per coefficient.")
+		pretty_print_array("prediction", rows @ details["w"])
+	cache_result(details["w"])
+
+
+def run_feature_preview():
+	n_features = prompt_int("Raw input features", default=3, minimum=1)
+	degree = prompt_int("Polynomial order", default=2, minimum=1)
+	include_bias = prompt_yes_no("Include constant", default=True)
+	points = input_optional_array("Points to expand")
+	details = polynomial_features_details(n_features, degree, points, include_bias)
+	print("Monomial coefficients:", details["count"])
+	print("Column order:", ", ".join(details["names"]))
+	if details["transformed"] is not None:
+		pretty_print_array("polynomial_features", details["transformed"])
+		cache_result(details["transformed"])
+	if prompt_yes_no("Check design and ridge matrix sizes", default=False):
+		shapes = regression_shapes(prompt_int("Samples", minimum=1), details["count"], prompt_int("Target outputs", default=1, minimum=1))
+		print(shapes)
+
+
+def run_minimum_check():
+	raw = input("Scalar function: ")
+	variable_text = input("Variable order [infer alphabetically]: ").strip()
+	variables = variable_text.split(",") if variable_text else None
+	_, symbols = parse_functions(raw, variables)
+	print("Coordinate order:", ", ".join(str(symbol) for symbol in symbols))
+	point = input("Candidate coordinates, comma-separated (fractions and pi accepted): ").split(",")
+	details = check_minimum(raw, point, variables)
+	print(details["classification"])
+	print(details["reason"])
+	print("Function value:", format_number(details["value"]))
+	for key in ("gradient_at_point", "hessian_at_point"):
+		if details[key] is not None:
+			pretty_print_array(key, details[key])
+	cache_result([[details["value"]]])
+
+
+def run_matrix_differentiation():
+	expression = input("MATLAB-style expression: ")
+	definitions = input("Matrices/constants, separated by semicolons (e.g. A=[1 2;0 3];syms x [2 1] real): ")
+	variable = input("Differentiate with respect to: ")
+	evaluation = input("Numeric assignments [optional, e.g. x=[1;1]]: ")
+	details = differentiate_matrix(expression, definitions, variable, evaluation)
+	print("Entry order (column by column):", ", ".join(details["variables"]))
+	print("Gradient:" if details["gradient"] is not None else "Jacobian:")
+	print(details["gradient"] if details["gradient"] is not None else details["jacobian"])
+	if details["hessian"] is not None:
+		print("Hessian:", details["hessian"])
+	if details["derivative_at_point"] is not None:
+		pretty_print_array("derivative_at_point", details["derivative_at_point"])
+		cache_result(details["derivative_at_point"])
+
+
+def run_statistics():
+	data = input_array("Observations, one per row")
+	convention = prompt_choice("Quartiles", ["Median of halves", "Linear interpolation"], default="Median of halves")
+	details = descriptive_statistics(data, convention)
+	for name in ("minimum", "q1", "median", "q3", "maximum", "iqr", "mean", "population_std"):
+		pretty_print_array(name, details[name])
+	cache_result(np.column_stack([details[key] for key in ("minimum", "q1", "median", "q3", "maximum", "iqr")]))
+
+
 def show_cache():
 	print_section("Cached Arrays")
 	if LAST_INPUT is None:
@@ -603,6 +792,15 @@ def process_input():
 	option = input("Choose an option: ").strip().lower()
 
 	actions = {
+		"minimum": run_minimum_check,
+		"matdiff": run_matrix_differentiation,
+		"stats": run_statistics,
+		"matrix": run_matrix_calculation,
+		"prepare": run_data_preparation,
+		"probability": run_probability_calculation,
+		"functions": run_function_analysis,
+		"normal": run_normal_equations,
+		"features": run_feature_preview,
 		"1": inspect_array,
 		"inspect": inspect_array,
 		"2": run_solve,

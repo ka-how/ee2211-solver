@@ -1,6 +1,8 @@
 """Build the printable manual with reportlab (a documentation-only dependency)."""
 
 from pathlib import Path
+import os
+import tempfile
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
@@ -13,7 +15,7 @@ from reportlab.platypus import (
 )
 
 
-OUTPUT = Path(__file__).with_name("EE2211_Solver_User_Guide.pdf")
+OUTPUT = Path(__file__).with_name("EE2211_Solver_User_Guide_Updated.pdf")
 styles = getSampleStyleSheet()
 for name in ("Title", "Heading1", "Heading2", "Normal"):
     styles[name].textColor = colors.black
@@ -77,8 +79,8 @@ def page(title):
 
 p("EE2211 Solver User Guide", "Title")
 p("How to enter data, choose a calculator, and interpret its results", "Heading2")
-p("Use this guide to work through matrix, regression, classification, decision tree, and clustering calculations. It covers every browser tab and all 15 terminal menu tools, with inputs you can paste and results you can check.")
-p("Updated 13 October 2026", "SmallText")
+p("Use this guide for matrix, regression, classification, probability, and clustering calculations. It covers every browser tab, all 15 numbered terminal tools, and the extra calculator shortcuts, with inputs you can paste and results you can check.")
+p("Updated 14 October 2026", "SmallText")
 heading("Start the program")
 p("Install Python 3.11 or newer. Open a terminal in the solver folder, install the app, and start the browser interface:")
 code("python -m pip install -e .\npython -m streamlit run webui.py")
@@ -86,16 +88,17 @@ p("Open the Local URL printed by Streamlit, usually http://localhost:8501. Keep 
 heading("Find the right tool")
 table([
     ["Browser tab", "What it does", "Guide page"],
-    ["Array", "Inspect matrices and available inverses", "2"],
+    ["Array", "Matrices, data preparation, and quartiles", "2, 11, 17"],
     ["Solve", "Solve Xw = y or wX = y", "2"],
-    ["Regression", "Linear, polynomial, ridge, and classification", "3 to 5"],
+    ["Regression", "Models, summaries, and polynomial features", "3-5, 13-14"],
     ["Pearson", "Correlation between columns", "6"],
-    ["Gradient", "Symbolic gradient descent", "6"],
+    ["Gradient", "Descent, derivatives, and minimum checks", "6, 13, 15-16"],
     ["Decision Tree", "Classification impurity or regression splits", "7 and 8"],
     ["K-means", "Cluster points using initial centroids", "9"],
+    ["Probability", "Distributions, events, draws, and grouped rates", "12 and 17"],
     ["Cache", "Copy and manage recent matrices", "9"],
 ], [90, 298, 80])
-p("The terminal menu map and troubleshooting advice are on page 10. Change any settings, enter the data, then press the main action button: Inspect, Solve, Fit, Calculate, or Run.")
+p("The terminal menu map is on page 10. Additional calculator modes are on pages 11 to 17; the Paper B tool map is on page 18. Choose a task, enter its data, then press its main action button.")
 
 page("Matrix inputs and linear systems")
 heading("Enter rows and columns")
@@ -281,6 +284,165 @@ code("python run_tests.py\npython -m unittest test_webui -v")
 p("The first command checks numerical calculations. The second exercises the browser forms with isolated test state. See README.md for alternative Python commands and virtual environment setup.")
 
 
+page("Matrix operations and data preparation")
+heading("Matrix and vector calculations")
+p("In Array, select Array task = Calculate. Choose Dot product, Matrix product, Add, Subtract, Elementwise product, or Trace. Enter A and B, then press Calculate. Trace needs only a square A. Addition, subtraction, and elementwise products require equal shapes; a matrix product requires A's column count to equal B's row count.")
+code("Dot product\nA: 2;-1;3\nB: 0;4;1")
+p("The result is -1. Dot product accepts row or column vectors with equal lengths. For A = <font face='Courier'>1 2;3 4</font>, Trace returns 5. Fractions such as <font face='Courier'>1/3</font> are accepted in numeric inputs, including nested Python-style arrays.")
+heading("Scale with known or fitted parameters")
+p("In Array, select Prepare data, then choose Min-max scaling or Z-score standardization. Enter Data with one feature per column. By default, statistics are fitted on its observed values. To use statistics from a question, check Use supplied feature parameters. Enter one parameter per column, or one number to apply to every column.")
+code("Min-max scaling\nData: 18\nFeature minimums: 10\nFeature maximums: 30")
+p("Press Transform to obtain 0.4. For z-scores, Data = 17, mean = 11, and standard deviation = 3 gives 2. Fitted z-scores use population standard deviation. Standardization changes location and scale; it does not make a distribution Gaussian.")
+p("Reference and output settings lets you fit statistics on separate training rows, choose a different min-max output interval, and reverse a transform. Reversal needs supplied parameters or original reference data. New values are not clipped to the reference range. Constant columns are rejected because their scaling denominator is zero.")
+heading("Impute missing entries")
+p("Choose Mean imputation and enter <font face='Courier'>2;4;12;?</font>. Press Transform to obtain <font face='Courier'>2;4;12;6</font>. The column mean uses observed entries only. Use ?, NA, or None for missing entries, or set a Missing numeric marker such as -1 in the settings expander.")
+p("You may supply separate reference rows to fit the imputation means. A reference column with no observed values cannot supply a mean. Impute missing entries before applying a scaling transform. Parameters used shows the statistics and missing counts; prepared_data is copied through Cache.")
+p("Terminal shortcuts: matrix and prepare. The terminal preparation shortcut supports fitted or supplied parameters and an optional missing numeric marker. Reference datasets, inverse transforms, and custom output intervals are available in the browser.", "SmallText")
+
+page("Probability calculators")
+p("Probability has one task selector. Only the selected calculator's inputs are shown. Invalid probability tables are rejected rather than silently normalized. Fractions work in text inputs, and ? can represent one unknown probability or prior.")
+heading("Discrete distributions")
+p("Choose Discrete distribution and enter outcome-probability pairs, one pair per row. Choose a comparison and boundary; between includes both endpoints. Calculate returns the event probability, mean, variance, and standard deviation. Cumulative probabilities is an optional panel.")
+code("Outcome and probability:\n-2 1/4\n0 ?\n3 1/2\nEvent: >=   Boundary: 0")
+p("The inferred probability is 1/4, and the event probability is 3/4. One unknown is recovered from the requirement that the probabilities sum to 1. Duplicate outcomes are combined when forming cumulative probabilities.")
+heading("Bayes updates")
+p("Choose Bayes update. Enter P(group) and P(event given group) in each row. Groups must be mutually exclusive and cover all possibilities. Group labels in the results refer to your input row numbers. Choose whether the event occurred, then Calculate.")
+code("Prior and event likelihood:\n0.30 0.10\n0.70 0.04")
+p("For Event occurred, the evidence probability is 0.058 and posterior probabilities are approximately 0.5172414 and 0.4827586. The result separates prior, likelihood, joint probability, and posterior. Event did not occur uses each likelihood's complement. Conditioning on evidence of probability zero is undefined and rejected.")
+heading("Two events")
+p("Choose Two events, enter P(A) and P(B), and supply either their intersection or union probability. Calculate returns both intersection and union, P(A given B), P(B given A), and independence and exclusivity checks. Joint table shows all four combinations of A and B. A conditional with a zero-probability conditioning event is shown as undefined.")
+p("For P(A) = 0.5, P(B) = 0.4, and intersection = 0.2, the events are independent and overlap. Independence and mutual exclusivity are separate properties. Numerical comparisons use a small floating-point tolerance.")
+heading("Continuous density areas")
+p("Choose Continuous density, enter a scalar f(x), finite support endpoints, and query interval endpoints. Integrate verifies that the density is continuous and nonnegative on its support and integrates to 1. It then integrates over the query's overlap with the support.")
+p("For f(x) = 2*x on [0,1], querying [0.5,1] gives 0.75. Densities may exceed 1; probabilities are areas, and single-point queries give zero. Unverified expressions are rejected. Terminal shortcut: probability.")
+
+page("Function derivatives and regression summaries")
+heading("Evaluate a scalar or vector function")
+p("In Gradient, select Function and derivatives at a point. Enter one scalar expression per output, separated by semicolons or new lines. Coordinate order is inferred alphabetically. Enter comma-separated point coordinates and press Evaluate. No gradient descent update is performed.")
+code("Function outputs: x1**2 + 3*x1*x2 + 2*x2**2\nPoint coordinates: 1,-1")
+p("The gradient column is [-1,-1]. A scalar output has a gradient and Hessian; vector outputs have a Jacobian. The optional symbolic panel shows formulas and identifies strictly linear, affine, or nonlinear polynomial outputs.")
+p("To preserve unused input coordinates, expand Variable order and specify all variable names. For <font face='Courier'>x1**2+x2;x1*x2</font> with variables <font face='Courier'>x1,x2,x3</font> and point <font face='Courier'>2,-1,7</font>, the Jacobian is <font face='Courier'>[[4,1,0],[-1,2,0]]</font>: two output rows and three input columns.")
+heading("Classify a supplied score")
+p("Select Interpret result as Sign classification for one scalar score, or Class scores for several outputs. Sign uses -1, 0, or +1. Class scores chooses the largest output and reports its zero-based index. No fitting is needed.")
+code("Function outputs: 1-2*x1+x1*x2\nPoint coordinates: 2,1\nInterpret result as: Sign classification")
+p("The score and predicted label are -1. For constant scores, leave Point coordinates empty. A class-score tie chooses the first output. Terminal shortcut: functions.")
+heading("Solve from supplied normal equation summaries")
+p("In Regression, select Use normal equation summaries. Enter X.T @ X and X.T @ Y directly. Choose None for ordinary least squares, or Ridge with Lambda. The summaries must have compatible dimensions, and the Gram matrix must be symmetric and positive semidefinite.")
+code("X.T @ X: 4 0;0 9\nX.T @ Y: 8;18\nRegularization: Ridge   Lambda: 1")
+p("Solve returns weights [1.6,1.8]. Optional prediction rows must already include the bias and any polynomial columns in the same coefficient order. A prediction row <font face='Courier'>1 1</font> gives 3.4. The equation check shows the regularized matrix and residual. These summaries alone do not determine training SSE. Terminal shortcut: normal.")
+heading("Check a fitted model")
+p("After Fit from samples, expand Normal equations and error checks. It shows X.T @ X, X.T @ Y, residuals E, X.T @ E, the objective gradient, total SSE, and SSE per sample across outputs. For ordinary least squares, X.T @ E is approximately zero. Ridge's gradient also includes its penalty term. Matrix dimensions distinguishes primal and dual systems.")
+
+page("Polynomial features and Paper A workflows")
+heading("Explore a feature map without targets")
+p("In Regression, select Explore polynomial features. Choose the number of raw inputs, polynomial order, and whether to include a constant, then press Preview. It reports the coefficient count and the exact column order. A full polynomial of total degree at most d in n inputs has (n+d choose d) coefficients including the constant.")
+code("Input features: 3\nPolynomial order: 2\nInclude constant: checked")
+p("There are 10 monomials: 1, x1, x2, x3, x1 squared, x1*x2, x1*x3, x2 squared, x2*x3, and x3 squared. Without the constant, there are 9. The app previews at most 5000 columns to avoid an impractical expansion.")
+p("Expand Evaluate points and check model sizes to enter points to transform and sample/output counts. Matrix dimensions shows design, weight, primal, and dual shapes. With 39 inputs, order 1, a constant, and 9 samples, the model has 40 coefficients: its primal system is 40 by 40 and its dual system is 9 by 9. Terminal shortcut: features.")
+heading("Choose a tool for Paper A")
+table([
+    ["Paper A questions", "App workflow", "Page"],
+    ["4 to 6", "Array > Prepare data", "11"],
+    ["7 to 10", "Probability > choose the relevant task", "12"],
+    ["11", "Array > Calculate > Dot product", "11"],
+    ["12 and 13", "Solve or Array > Inspect", "2"],
+    ["14 to 16 and 24", "Gradient > Function and derivatives at a point", "13"],
+    ["17 to 20", "Regression > Fit from samples; expand error checks", "3 and 13"],
+    ["21", "Regression > Use normal equation summaries", "13"],
+    ["22, 23 and 25", "Regression > Explore polynomial features", "14"],
+], [108, 288, 72])
+p("The same workflows accept other values, dimensions, and functions. Conceptual questions about learning definitions or measurement scales still require interpreting the question; the calculator modes support the numerical parts.")
+heading("Verify the new tools")
+code("python -m unittest test_general_tools -v\npython -m unittest test_webui -v")
+p("The numerical tests cover Paper A examples and generalized cases; browser tests exercise mode changes, validation, and compact default forms. The terminal accepts matrix, prepare, probability, functions, normal, and features directly at its main menu.")
+p("Practice reference: ee2211-four-midterm-practice-papers.pdf, Paper A, pages 1 to 5. Use the mode selectors to expose additional controls only when you need them.", "SmallText")
+
+page("Check whether a point is a minimum")
+heading("Supply the function and candidate point")
+p("Open Gradient and select Check a minimum point. Enter one scalar function and its candidate coordinates. Use * for multiplication and ^ or ** for powers. Variable order is inferred alphabetically; the optional Variable order panel lets you specify it explicitly, including unused coordinates.")
+code("Function f: (x-3)^2+2\nCandidate point: 3")
+p("Press Check point. The result is Strict global minimum, and the function value is 2. The candidate x = 3 is the arg minimum; the minimum value is f(3) = 2. This tool checks the point you supply; it does not search for all minimizers.")
+p("For several variables, enter coordinates separated by commas. Exact fractions and numeric expressions such as 1/3, sqrt(2), and pi/2 are accepted. Use an exact point when possible: a rounded approximation to a stationary point can have a small nonzero gradient.")
+heading("Read the classification")
+table([
+    ["Result", "What establishes it"],
+    ["Not a minimum", "Nonzero gradient at a smooth interior point, or a verified negative-curvature direction."],
+    ["Strict local minimum", "Zero gradient and positive definite Hessian; or a positive first nonzero derivative of even order in one variable."],
+    ["Strict global minimum / global minimum", "A stationary point of a convex quadratic or affine function. Singular curvature gives a non-strict result."],
+    ["Strict local maximum", "Zero gradient and negative definite Hessian, or a negative first nonzero derivative of even order."],
+    ["Saddle / neither minimum nor maximum", "Indefinite Hessian, or a first nonzero derivative of odd order in one variable."],
+    ["Inconclusive", "The derivative test cannot prove a classification; further analysis is needed."],
+], [153, 315], padding=3)
+heading("A zero gradient can be misleading")
+code("x^3 at 0: neither minimum nor maximum\nx^4 at 0: strict local minimum\nx^2-y^2 at 0,0: saddle point\nx^2-y^4 at 0,0: inconclusive Hessian test")
+p("Expand Derivative checks for symbolic and evaluated gradients, Hessians, and Hessian eigenvalues. One-variable higher derivative checks stop at order 12. The general multivariable singular-Hessian case is left inconclusive; a positive semidefinite Hessian at one point alone does not prove a minimum.")
+p("This tool tests unconstrained smooth interior points. Nondifferentiable functions and domain-boundary candidates need other tests and may be reported as inconclusive. It reports a global result only with a convex quadratic certificate. Terminal shortcut: minimum.", "SmallText")
+
+page("Differentiate MATLAB matrix expressions")
+heading("Declare the matrices, then differentiate")
+p("Open Gradient and select Differentiate a matrix expression. Enter a MATLAB-style expression, the matrix and constant definitions, and one differentiation variable name. Use one definition per line or semicolons between definitions. syms declares independent real symbolic entries.")
+code("Matrix expression: x'*A*x\nMatrices and constants:\nA = [1 2;0 3]\nsyms x [2 1] real\nDifferentiate with respect to: x")
+p("Press Differentiate. The symbolic gradient is [2*x1+2*x2; 2*x1+6*x2]. For a general real matrix A, the quadratic gradient is (A + A transpose)*x; A need not be symmetric. The result therefore does not replace it with 2*A*x unless symmetry is actually established.")
+heading("Evaluate the derivative")
+p("Expand Evaluate at values (optional), enter the following Numeric assignments, and differentiate again:")
+code("x = [1;1]")
+p("The evaluated gradient is [4;8]. Expanded expression, value, and Hessian shows f(x) = 6 and Hessian [2 2;2 6]. Numeric results can be reused in Cache. Keep the differentiation variable symbolic in its definition; put numeric candidate values in the evaluation panel.")
+heading("Keep coefficients symbolic")
+code("syms A [2 2] real\nsyms x [2 1] real\nsyms lambda real")
+p("The derivative retains A's entries. Optional evaluation can assign A = [1 2;0 3] and x = [1;1]. Every evaluated matrix must match its declared shape. Scalars and explicit symbolic arrays, such as x = [u;v], also work if the differentiation entries are distinct symbols.")
+heading("Regression losses and matrix outputs")
+code("norm(X*w-y)^2 + lambda*(w'*w)\ntrace((X*W-Y)'*(X*W-Y)) + lambda*trace(W'*W)\nsum((X*W-Y).^2,'all')")
+p("Define X, y or Y, lambda, and symbolic w or W before differentiating. Matrix residuals use the Frobenius norm or a trace/sum over all squared entries. norm(A) is accepted for vectors; use norm(A,'fro') for a matrix.")
+p("A scalar output gives a gradient with the same shape as the differentiation variable and a Hessian. A vector or matrix output gives a Jacobian. Jacobians flatten output and variable entries column by column; Hessian coordinates follow the displayed entry order. A = [1 2;3 4] with expression A*x has Jacobian A. The complete syntax reference is on page 18 and inside the app. Terminal shortcut: matdiff.", "SmallText")
+
+page("Quartiles, draws, and grouped rates")
+heading("Quartiles and descriptive statistics")
+p("Open Array and choose Summarize data. Enter observations one per row; multiple feature columns are summarized independently. Press Summarize for minimum, Q1, median, Q3, maximum, and interquartile range (IQR).")
+code("Observations: 1;2;3;4;8;9;10;12")
+p("Q1 = 2.5, median = 6, Q3 = 9.5, and IQR = 7. The default convention takes the medians of the lower and upper halves. For an odd sample size, exclude the middle observation from both halves; for one observation, both quartiles equal that value.")
+p("Quartile convention offers linear interpolation as an alternative, which can give different answers. Mean, spread, and outlier fences shows the mean, population standard deviation, and the fences Q1 - 1.5*IQR and Q3 + 1.5*IQR. Terminal shortcut: stats.")
+heading("Draw without replacement")
+p("Open Probability and choose Sampling without replacement. Marked items are the category you count; X is their count in a uniformly drawn sample. Choose a comparison or an inclusive between interval, enter the bag counts and event boundary, and press Calculate.")
+code("Total items: 6\nMarked items: 2 (blue)\nNumber of draws: 2\nEvent: >=   Count boundary: 1")
+p("The probability of at least one blue is 3/5 = 0.6. The result includes an exact fraction. Count distribution and formula shows the hypergeometric probability for each feasible number of marked items. Draws and marked counts cannot exceed the total. Zero draws are supported. Limits are 10000 items and 1000 draws.")
+heading("Compare methods across groups")
+p("Open Probability and choose Compare grouped rates. Each row gives A successes, A total, B successes, B total for the same group. Totals must be positive integers and successes cannot exceed them.")
+code("Grouped counts:\n9 10 80 100\n20 100 1 10")
+p("Method A has rates 0.9 and 0.2; method B has 0.8 and 0.1. A is ahead in both groups, but its pooled rate is 29/110 (0.2636364) and B's is 81/110 (0.7363636). The app identifies this Simpson's reversal.")
+p("Pooling weights shows each group's share of each method's total cases. The pooled rate is total successes divided by total cases, not the unweighted mean of percentages. Terminal shortcut: probability, then choose sampling or rates.")
+
+page("Paper B tool map and syntax reference")
+heading("Choose a tool for Paper B")
+table([
+    ["Questions", "App workflow", "Page"],
+    ["4", "Array > Summarize data (median of halves)", "17"],
+    ["7", "Probability > Sampling without replacement", "17"],
+    ["8 and 10", "Probability > Discrete distribution or Two events", "12"],
+    ["11", "Probability > Compare grouped rates", "17"],
+    ["12 to 15", "Array > Inspect for numeric ranks; Solve for systems", "2"],
+    ["16 and 17", "Gradient > Check a minimum point", "15"],
+    ["18 and 20", "Gradient > Differentiate a matrix expression", "16"],
+    ["19 and 23", "Regression > Fit from samples; disable linear bias", "3-4"],
+    ["21 and 22", "Gradient > Function and derivatives > classify a score", "13"],
+    ["24 and 25", "Regression > feature preview / primal and dual forms", "4 and 14"],
+], [67, 334, 67], padding=3)
+p("For question 12, substitute each proposed parameter into the numeric matrix and inspect rank. For question 20, evaluate trace(E'*E) using E's numeric matrix; the expression value is available in the detail panel. For question 22, Sign classification adds a collapsed Decision boundary panel: 2*x1-x2-1 = 0 becomes x2 = 2*x1-1. Conceptual statements still require interpretation.", "SmallText")
+heading("Supported MATLAB notation")
+table([
+    ["Notation", "Meaning"],
+    ["A = [1 2;3 4]; syms x [2 1] real", "Numeric matrix assignment; symbolic real vector declaration."],
+    ["*, /, backslash, ^", "Matrix multiplication, division, and powers. Division uses square invertible matrix operands; powers are integer -12 to 12."],
+    [".*, ./, .^; apostrophe or .'", "Elementwise arithmetic; transpose of real matrices."],
+    ["trace, det, inv, transpose, diag", "Matrix functions; trace/det/inv require square matrices."],
+    ["norm(v), norm(A,'fro'); sum(A,'all')", "Euclidean vector / Frobenius matrix norm; sum every entry. Plain sum(A) sums columns for a matrix."],
+    ["eye, zeros, ones; A(1,2)", "Matrix constructors; one-based indexing. A single index uses column-major order."],
+    ["sin, cos, tan, exp, log, sqrt, abs", "Real entrywise mathematical functions."],
+], [206, 262], padding=3)
+p("Each matrix is limited to 100 entries and each Jacobian to 5000 entries. This is an arithmetic syntax subset: loops, scripts, complex arithmetic, and general MATLAB execution are unsupported. Matrix definitions and numeric evaluation use separate boxes.", "SmallText")
+code("python -m unittest run_tests test_general_tools test_paper_b_tools test_webui -v")
+p("Practice reference: ee2211-four-midterm-practice-papers.pdf, Paper B, pages 6 to 10. No extra tabs were added; select the task you need and expand details when useful.", "SmallText")
+
+
 def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont("Helvetica", 8.5)
@@ -290,11 +452,20 @@ def footer(canvas, doc):
     canvas.restoreState()
 
 
+with tempfile.NamedTemporaryFile(dir=OUTPUT.parent, suffix=".pdf", delete=False) as staged:
+    staged_path = Path(staged.name)
 doc = SimpleDocTemplate(
-    str(OUTPUT), pagesize=letter,
+    str(staged_path), pagesize=letter,
     rightMargin=0.75 * inch, leftMargin=0.75 * inch,
     topMargin=0.6 * inch, bottomMargin=0.65 * inch,
     title="EE2211 Solver User Guide", author="EE2211 Solver",
 )
 doc.build(story, onFirstPage=footer, onLaterPages=footer)
-print(OUTPUT)
+try:
+    os.replace(staged_path, OUTPUT)
+    print(OUTPUT)
+except PermissionError:
+    # Windows PDF viewers may hold the previous guide open without write sharing.
+    updated = OUTPUT.with_stem(OUTPUT.stem + "_Copy")
+    os.replace(staged_path, updated)
+    print(f"The existing guide is open or locked. Saved the updated guide to {updated}")

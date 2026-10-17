@@ -1,0 +1,13 @@
+name: ee2211-notebooks
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy>=1.26,<2.4
+  - pandas>=2.2,<3
+  - scikit-learn>=1.4,<2
+  - sympy>=1.12,<2
+  - jupyterlab>=4,<5
+  - ipykernel
+  - nbformat>=5.10,<6
+  - nbclient>=0.10,<1

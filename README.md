@@ -12,6 +12,17 @@ calculation steps, so you can spend more exam time thinking about conceptual que
 The main way to use it is the Streamlit WebUI. There is also a terminal menu if
 you prefer command line tools.
 
+A [Jupyter notebook edition](notebooks/README.md) provides one notebook for each
+of the nine website tabs, with editable examples and a shared matrix cache.
+It supports Python 3.11 and includes Conda setup instructions and an
+[environment file](notebooks/environment.yml).
+
+The Probability notebook and website tab also include a dynamic solver: enter
+known values such as `a=.4`, `a*b=.1`, `a+b=.7`, and request `b=???` to obtain
+`P(B)=.4`. Events A, B, and C are supported, including `a*b*c` and `a|(b+c)`.
+Here `*` means intersection, `+` union, and `|` conditional probability.
+The solver checks consistency and reports bounds when an answer is not unique.
+
 ## What It Can Do
 
 - Parse matrices and quickly check shape, rank, transpose, inverse, left inverse,
@@ -25,12 +36,72 @@ you prefer command line tools.
 - Check one-level regression-tree splits and find the best threshold.
 - Run K-means clustering from points and initial centroids.
 - Cache matrices and results in the WebUI so you can copy and reuse them.
+- Scale features, standardize columns, and impute missing values from observed data.
+- Calculate matrix products, vector dot products, sums, differences, and traces.
+- Work with discrete probabilities, Bayes updates, joint events, and finite-support densities.
+- Evaluate scalar/vector functions and inspect gradients, Jacobians, and Hessians at a point.
+- Solve from supplied normal equation summaries and preview polynomial features without fitting.
+- Check a candidate minimum point, distinguishing maxima, saddles, and inconclusive cases.
+- Differentiate real matrix expressions using MATLAB-style syntax, with optional numeric evaluation.
+- Find quartiles, compute probabilities for draws without replacement, and compare grouped success rates.
+
+The additional calculators are grouped under task selectors in the existing
+Array, Gradient, and Regression tabs. Probability is one additional tab;
+reference settings and detailed checks are expandable.
+
+| New workflow | Location |
+| --- | --- |
+| Min-max scaling, z-scores, mean imputation | Array > Prepare data |
+| Matrix and vector operations | Array > Calculate |
+| Unknown probabilities, moments, Bayes, events, density intervals | Probability |
+| Function values, derivatives, supplied classifier scores | Gradient > Function and derivatives at a point |
+| OLS/ridge from `X.T @ X` and `X.T @ Y` | Regression > Use normal equation summaries |
+| Monomial counts, feature maps, primal/dual shapes | Regression > Explore polynomial features |
+| Residuals, total SSE, normal equation and gradient checks | Regression > Fit from samples > Normal equations and error checks |
+| Candidate minima, maxima, and saddles | Gradient > Check a minimum point |
+| MATLAB matrix derivatives and Jacobians | Gradient > Differentiate a matrix expression |
+| Quartiles and descriptive statistics | Array > Summarize data |
+| Finite-bag draws and grouped success rates | Probability > Sampling without replacement / Compare grouped rates |
+| Boundary of a supplied binary score | Gradient > Function and derivatives at a point > Sign classification > Decision boundary |
+
+No tabs were added for Paper B. Each tab shows only its selected task, with
+derivative checks, numeric evaluation, and pooling details in collapsed panels.
+
+For example, **Gradient > Check a minimum point** accepts `(x-3)^2+2` and
+candidate `3`, reporting a strict global minimum with value `2`. For `x^3` at
+`0`, it reports neither minimum nor maximum. Multivariable functions are
+supported; singular Hessians may need further analysis and are reported as
+inconclusive. This is an unconstrained smooth interior-point check. Coordinates
+can be exact fractions or expressions such as `pi/2`; approximate stationary
+coordinates can have a small nonzero gradient.
+
+For **Gradient > Differentiate a matrix expression**, enter:
+
+```matlab
+% Matrix expression
+x'*A*x
+% Matrices and constants
+A = [1 2;0 3]
+syms x [2 1] real
+% Optional numeric evaluation
+x = [1;1]
+```
+
+Choose `x` as the differentiation variable. The evaluated gradient is `[4;8]`;
+the derivative accounts for both `A` and its transpose. Symbolic matrices can
+be declared with `syms A [2 2] real`. Supported expressions include
+`norm(X*w-y)^2 + lambda*(w'*w)`, `trace(W'*W)`, and
+`sum((X*W-Y).^2,'all')`. Scalar gradients keep the variable's matrix shape;
+Jacobians and Hessians use column-major entry order. The tool supports a
+documented subset of real MATLAB arithmetic and functions, rather than full
+MATLAB scripts. The syntax reference is inside its collapsed help panel.
 
 ## Beginner Setup
 
 For worked examples, input formats, settings, and outputs for every calculator,
-see the [EE2211 Solver User Guide](docs/EE2211_Solver_User_Guide.pdf).
-It covers all eight WebUI tabs and all fifteen terminal tools.
+see the [EE2211 Solver User Guide](docs/EE2211_Solver_User_Guide_Updated.pdf).
+It covers all nine WebUI tabs, the fifteen numbered terminal tools, and the
+extra calculator shortcuts.
 
 You do not need to be good at Python to run this.
 
@@ -198,6 +269,10 @@ Or Python-style arrays:
 [[1, 2], [3, 4]]
 ```
 
+Fractions also work: `1/3 2/3; -1/2 3/4`. In Prepare data and probability
+tables, `?` or `NA` represents a missing entry. Ordinary numeric matrices
+continue to require finite values.
+
 For long one-dimensional data, a useful trick is to type it sideways first:
 
 ```text
@@ -253,6 +328,10 @@ With `uv`, run `uv run python main.py` instead.
 You can choose menu items by number, or use shortcuts like `linear`, `ridge`,
 `pearson`, `gradient`, `impurity`, and `split`.
 
+The new workflows also have direct shortcuts: `matrix`, `prepare`,
+`probability`, `functions`, `normal`, `features`, `minimum`, `matdiff`, and `stats`.
+Within `probability`, choose `sampling` or `rates` for the Paper B calculators.
+
 ## Run Tests
 
 If you want to check that the solver logic is still working:
@@ -268,6 +347,12 @@ To exercise the WebUI forms with isolated saved state, run:
 
 ```bash
 python -m unittest test_webui -v
+```
+
+The new numerical tools and Paper A/B examples are checked with:
+
+```bash
+python -m unittest test_general_tools test_paper_b_tools -v
 ```
 
 The printable guide can be regenerated with `python docs/build_user_guide.py`.

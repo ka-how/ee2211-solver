@@ -21,6 +21,7 @@ from CommonUtils import (
     format_number,
     parse_mixed_array,
     parse_numeric_array,
+    parse_number,
     python_array_literal,
     squared_error_summary,
     validate_same_feature_count,
@@ -33,6 +34,14 @@ from DecisionTreeUtils import (
     regression_threshold_summary,
 )
 from GradientDescent import gradient_descent, infer_variables
+from DataPreparation import PREPARATION_METHODS, descriptive_statistics, matrix_calculation, prepare_data
+from FunctionUtils import analyze_functions, check_minimum, parse_functions
+from MatrixCalculus import differentiate_matrix
+from ProbabilityUtils import (
+    bayes_update, compare_grouped_rates, density_probability, discrete_distribution,
+    event_probabilities, format_probability_result, sampling_without_replacement, solve_probabilities,
+)
+from RegressionUtils import polynomial_features_details, regression_diagnostics, regression_shapes, solve_normal_equations
 from KMeansUtils import k_means
 from OneHotLinearClassification import prepare_class_targets, validate_onehot_targets
 from pearson_correlation import pearson_correlation_details
@@ -40,7 +49,7 @@ from pearson_correlation import pearson_correlation_details
 
 MATRIX_HELP = (
     "Rows can be separated with semicolons or new lines. Examples: "
-    "`1 2; 3 4`, `1, 2\\n3, 4`, or `[[1, 2], [3, 4]]`."
+    "`1 2; 3 4`, `1, 2\\n3, 4`, or `[[1, 2], [3, 4]]`. Fractions such as `1/3` are accepted."
 )
 RIDGE_FORMS = ("auto", "primal form", "dual form")
 STATE_FILE = Path(__file__).resolve().parent / "temp" / "webui_state.json"
@@ -83,6 +92,21 @@ PERSISTED_WIDGET_KEYS = (
     "kmeans_x_raw",
     "kmeans_centroids_raw",
     "kmeans_max_iterations",
+    "array_mode", "matrix_operation", "matrix_a_raw", "matrix_b_raw",
+    "prep_method", "prep_data", "prep_reference", "prep_supplied",
+    "prep_inverse", "prep_range_low", "prep_range_high", "prep_missing_marker",
+    "prep_first_minmax", "prep_second_minmax", "prep_first_zscore", "prep_second_zscore",
+    "reg_workflow", "normal_regularization", "normal_lambda", "normal_gram_raw", "normal_rhs_raw", "normal_predict_raw",
+    "features_count", "features_degree", "features_bias", "features_points_raw", "features_samples", "features_outputs",
+    "gradient_mode", "function_expressions", "function_variables", "function_point", "function_interpretation",
+    "probability_mode", "pmf_table", "pmf_comparison", "pmf_boundary", "pmf_upper",
+    "bayes_table", "bayes_observed", "event_known_kind", "event_pa", "event_pb", "event_known",
+    "density_expression", "density_support_low", "density_support_high", "density_query_low", "density_query_high",
+    "stats_data", "stats_convention", "minimum_expression", "minimum_variables", "minimum_point",
+    "matdiff_expression", "matdiff_definitions", "matdiff_variable", "matdiff_evaluation",
+    "sampling_total", "sampling_marked", "sampling_draws", "sampling_comparison", "sampling_boundary", "sampling_upper",
+    "rates_table",
+    "probability_equations", "probability_equations_related",
 )
 
 
@@ -90,7 +114,7 @@ def main():
     configure_page()
     ensure_state()
 
-    st.title("EE2211 Solver")
+    render_workspace_header()
 
     tabs = st.tabs(
         [
@@ -101,6 +125,7 @@ def main():
             "Gradient",
             "Decision Tree",
             "K-means",
+            "Probability",
             "Cache",
         ]
     )
@@ -119,44 +144,236 @@ def main():
     with tabs[6]:
         render_kmeans_tab()
     with tabs[7]:
+        render_probability_tab()
+    with tabs[8]:
         render_cache_tab()
 
 
 def configure_page():
-    st.set_page_config(page_title="EE2211 Solver", layout="wide", initial_sidebar_state="collapsed")
+    st.set_page_config(page_title="Calculation workspace", page_icon="🧮", layout="wide", initial_sidebar_state="collapsed")
     st.markdown(
         """
         <style>
         :root {
-          --solver-border: rgba(49, 51, 63, 0.16);
-          --solver-soft: rgba(49, 51, 63, 0.055);
+          color-scheme: dark;
+          --solver-border: #293744;
+          --solver-soft: #141e28;
+          --workspace-muted: #9aabba;
+          --workspace-accent: #6ee7c0;
+        }
+        [data-testid="stAppViewContainer"] {
+          background: #0b1016;
+          color: #e6edf3;
+        }
+        [data-testid="stHeader"] {
+          background: #0b1016;
         }
         .block-container {
-          padding-top: 2rem;
-          padding-bottom: 3rem;
-          max-width: 1320px;
+          padding: 3.5rem 2.5rem 4rem;
+          max-width: 1240px;
         }
-        h1 {
-          font-size: 2rem;
-          letter-spacing: 0;
-          margin-bottom: 1rem;
+        .workspace-header {
+          margin-bottom: 0.35rem;
         }
-        h2, h3 {
-          letter-spacing: 0;
+        .workspace-masthead {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+          padding-bottom: 1.25rem;
+          border-bottom: 1px solid var(--solver-border);
+          color: var(--workspace-muted);
+          font: 0.69rem 'Cascadia Code', Consolas, monospace;
+          letter-spacing: 0.11em;
+          text-transform: uppercase;
+        }
+        .workspace-identity {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          color: #e6edf3;
+        }
+        .workspace-mark {
+          display: grid;
+          grid-template-columns: repeat(2, 6px);
+          gap: 4px;
+        }
+        .workspace-mark i {
+          width: 6px;
+          height: 6px;
+          background: var(--workspace-accent);
+        }
+        .workspace-mark i:last-child {
+          background: transparent;
+          border: 1px solid var(--workspace-accent);
+        }
+        .workspace-hero {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 260px;
+          gap: 2rem;
+          align-items: center;
+          padding: 2rem 0 1.75rem;
+        }
+        .workspace-eyebrow {
+          margin: 0 0 0.75rem;
+          color: var(--workspace-accent);
+          font: 0.68rem 'Cascadia Code', Consolas, monospace;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+        }
+        .workspace-hero h1 {
+          color: #f1f5f9;
+          font-size: clamp(1.9rem, 3.4vw, 2.65rem);
+          font-weight: 600;
+          letter-spacing: -0.045em;
+          line-height: 1.12;
+          padding: 0;
+          margin: 0 0 0.85rem;
+        }
+        .workspace-description {
+          max-width: 440px;
+          margin: 0;
+          color: var(--workspace-muted);
+          font-size: 0.91rem;
+          line-height: 1.65;
+        }
+        .workspace-equation {
+          padding: 1.1rem 1.3rem;
+          border: 1px solid var(--solver-border);
+          border-radius: 12px;
+          background-color: #101923;
+          background-image: radial-gradient(#2a3947 0.7px, transparent 0.7px);
+          background-size: 14px 14px;
+        }
+        .workspace-equation-label {
+          color: var(--workspace-muted);
+          font: 0.6rem 'Cascadia Code', Consolas, monospace;
+          letter-spacing: 0.08em;
+        }
+        .workspace-equation-body {
+          display: flex;
+          gap: 0.9rem;
+          align-items: center;
+          justify-content: center;
+          padding: 1.1rem 0;
+          color: var(--workspace-accent);
+          font: 1.1rem 'Cascadia Code', Consolas, monospace;
+        }
+        .workspace-matrix {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 0.25rem 0.75rem;
+          padding: 0.25rem 0.6rem;
+          border-left: 2px solid #6ee7c080;
+          border-right: 2px solid #6ee7c080;
+          color: #dce7f1;
+          font-size: 0.9rem;
+        }
+        .workspace-equation-footer {
+          border-top: 1px solid var(--solver-border);
+          padding-top: 0.65rem;
+          color: var(--workspace-muted);
+          text-align: center;
+          font: 0.57rem 'Cascadia Code', Consolas, monospace;
+          letter-spacing: 0.09em;
+        }
+        [role="tablist"] {
+          gap: 0.25rem;
+          padding: 0.4rem;
+          border: 1px solid var(--solver-border);
+          border-radius: 10px;
+          background: #111923;
+        }
+        [role="tab"] {
+          flex: 1 0 auto;
+          height: 2.6rem;
+          padding: 0.5rem 0.8rem;
+          border-radius: 6px;
+          color: #9aabba;
+          transition: background 120ms, color 120ms;
+        }
+        [role="tab"] p {
+          font-size: 0.82rem;
+          font-weight: 500;
+        }
+        [role="tab"]:hover {
+          background: #1c2935;
+          color: #e6edf3;
+        }
+        [role="tab"][aria-selected="true"] {
+          background: #1c3937;
+          color: #85efce;
+          box-shadow: inset 0 0 0 1px #355d55;
+        }
+        [data-baseweb="tab-highlight"], [data-baseweb="tab-border"],
+        [data-testid="stTabs"] .react-aria-SelectionIndicator {
+          display: none;
+        }
+        [role="tabpanel"] {
+          padding-top: 1.65rem;
+        }
+        h2, h3, h4 {
+          color: #e6edf3;
+          letter-spacing: -0.025em;
+        }
+        h3 {
+          font-size: 1.35rem;
+          font-weight: 600;
+        }
+        h4 {
+          font-size: 1.05rem;
+        }
+        [data-testid="stWidgetLabel"] p {
+          color: #b7c6d3;
+          font-size: 0.8rem;
+        }
+        [data-testid="stCaptionContainer"] {
+          color: var(--workspace-muted);
+        }
+        [data-baseweb="textarea"], [data-baseweb="input"], [data-baseweb="select"] > div {
+          border-color: var(--solver-border);
+          border-radius: 7px;
+        }
+        [data-testid="stTextArea"] textarea {
+          background: #0d151e;
+          color: #dce7f1;
+          font: 0.88rem/1.65 'Cascadia Code', Consolas, monospace;
+          caret-color: var(--workspace-accent);
+        }
+        [data-testid="stButton"] button,
+        [data-testid="stFormSubmitButton"] button {
+          border-radius: 7px;
+          font-weight: 500;
+          min-height: 2.5rem;
+        }
+        [data-testid="stBaseButton-primaryFormSubmit"],
+        [data-testid="stBaseButton-primaryFormSubmit"] p {
+          color: #081b16;
+        }
+        button:focus-visible, [role="tab"]:focus-visible {
+          outline: 2px solid var(--workspace-accent);
+          outline-offset: 3px;
+        }
+        [data-testid="stExpander"] {
+          border-color: var(--solver-border);
+          border-radius: 7px;
+          background: #101923;
         }
         div[data-testid="stMetric"] {
           border: 1px solid var(--solver-border);
-          border-radius: 8px;
-          padding: 0.45rem 0.65rem;
+          border-radius: 10px;
+          padding: 0.8rem 0.9rem;
           background: var(--solver-soft);
           min-height: 0;
         }
         div[data-testid="stMetricLabel"] {
+          color: var(--workspace-muted);
           font-size: 0.78rem;
           line-height: 1.15;
           overflow-wrap: anywhere;
         }
         div[data-testid="stMetricValue"] {
+          color: #85efce;
           font-size: 1.05rem !important;
           line-height: 1.2 !important;
           overflow-wrap: anywhere;
@@ -167,12 +384,14 @@ def configure_page():
           line-height: inherit !important;
         }
         div[data-testid="stForm"] {
-          border-radius: 8px;
+          padding: 1.4rem;
+          border-radius: 12px;
           border-color: var(--solver-border);
+          background: #111923;
         }
         .solver-meta {
-          color: rgba(49, 51, 63, 0.74);
-          font-size: 0.88rem;
+          color: var(--workspace-muted);
+          font: 0.78rem/1.5 'Cascadia Code', Consolas, monospace;
           margin: -0.35rem 0 0.5rem 0;
         }
         .solver-chip {
@@ -182,7 +401,8 @@ def configure_page():
           padding: 0.1rem 0.45rem;
           margin-right: 0.25rem;
           font-size: 0.78rem;
-          color: rgba(49, 51, 63, 0.76);
+          color: #b7c6d3;
+          background: #1b2935;
         }
         div[data-testid="stLatex"] {
           overflow-x: auto;
@@ -196,7 +416,66 @@ def configure_page():
           font-size: 1.05rem !important;
           line-height: 1.2;
         }
+        @media (max-width: 760px) {
+          .block-container {
+            padding: 3rem 1.1rem 2rem;
+          }
+          .workspace-hero {
+            grid-template-columns: 1fr;
+            padding: 1.5rem 0;
+          }
+          .workspace-equation, .workspace-topics {
+            display: none;
+          }
+          .workspace-hero h1 {
+            font-size: 2rem;
+          }
+          [role="tab"] {
+            flex: 0 0 auto;
+          }
+          div[data-testid="stForm"] {
+            padding: 1rem;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [role="tab"] {
+            transition: none;
+          }
+        }
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_workspace_header():
+    st.markdown(
+        """
+        <header class="workspace-header">
+          <div class="workspace-masthead">
+            <div class="workspace-identity">
+              <span class="workspace-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+              <span>Calculation workspace</span>
+            </div>
+            <span class="workspace-topics">Matrices / Models / Probability</span>
+          </div>
+          <div class="workspace-hero">
+            <div>
+              <p class="workspace-eyebrow">A space to work things out</p>
+              <h1>Work through the numbers.</h1>
+              <p class="workspace-description">Explore your data, test a model, or solve an equation.
+              Choose a tool below to get started.</p>
+            </div>
+            <div class="workspace-equation" aria-hidden="true">
+              <div class="workspace-equation-label">LINEAR SYSTEM / Xw = y</div>
+              <div class="workspace-equation-body">
+                <span class="workspace-matrix"><span>1</span><span>1</span><span>1</span><span>2</span></span>
+                <span>w</span><span>=</span><span>y</span>
+              </div>
+              <div class="workspace-equation-footer">INPUT &nbsp; &rarr; &nbsp; COMPUTE &nbsp; &rarr; &nbsp; INSIGHT</div>
+            </div>
+          </div>
+        </header>
         """,
         unsafe_allow_html=True,
     )
@@ -327,10 +606,21 @@ def json_safe_value(value):
 
 
 def render_array_tab():
-    st.subheader("Parse And Inspect Array")
+    mode = st.selectbox("Array task", ("Inspect", "Calculate", "Prepare data", "Summarize data"), key="array_mode")
+    if mode == "Summarize data":
+        render_statistics_panel()
+        return
+    if mode == "Calculate":
+        render_matrix_calculator()
+        return
+    if mode == "Prepare data":
+        render_preparation_panel()
+        return
+    st.subheader("Inspect an array")
+    st.caption("Check dimensions, rank, transposes, and inverses in one place.")
     with st.form("array_form", border=True):
         array, _ = matrix_input("Array", "array_inspect", default="1 2; 3 4")
-        submitted = st.form_submit_button("Inspect")
+        submitted = st.form_submit_button("Inspect", type="primary")
 
     if submitted:
         save_persisted_state()
@@ -352,8 +642,268 @@ def render_array_tab():
         record_matrix(name, "Array inspection result", value, kind="output")
 
 
+def render_matrix_calculator():
+    st.subheader("Matrix and vector calculations")
+    operation = st.selectbox("Operation", ("Dot product", "Matrix product", "Add", "Subtract", "Elementwise product", "Trace"), key="matrix_operation")
+    with st.form("matrix_calculation_form"):
+        columns = st.columns(2) if operation != "Trace" else [st.container()]
+        with columns[0]:
+            A, _ = matrix_input("A", "matrix_a", default="2;-1;3")
+        B = None
+        if operation != "Trace":
+            with columns[1]:
+                B, _ = matrix_input("B", "matrix_b", default="0;4;1")
+        submitted = st.form_submit_button("Calculate", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        if A is None or (operation != "Trace" and B is None):
+            raise ValueError("Enter all required matrices.")
+        result = matrix_calculation(A, operation, B)
+    except Exception as exc:
+        st.error(str(exc))
+        return
+    render_matrix("result", result)
+    record_matrix("matrix_result", operation, result, kind="output")
+
+
+def render_preparation_panel():
+    st.subheader("Prepare numeric data")
+    method = st.selectbox("Transform", PREPARATION_METHODS, key="prep_method")
+    supplied = False
+    if method != "Mean imputation":
+        supplied = st.checkbox("Use supplied feature parameters", key="prep_supplied")
+    st.caption("Rows are samples. Use ? or NA for missing entries. Parameters are fitted per column from observed reference data. Z-scores use population standard deviation.")
+    with st.form("preparation_form"):
+        raw = st.text_area("Data", value="10;18;30", key="prep_data", help="For mean imputation, try 2;4;12;?. Fractions are accepted.")
+        first_text = second_text = None
+        if supplied:
+            parameter_mode = "minmax" if method == "Min-max scaling" else "zscore"
+            first_label, second_label = ("Feature minimums", "Feature maximums") if method == "Min-max scaling" else ("Feature means", "Feature standard deviations")
+            columns = st.columns(2)
+            with columns[0]:
+                first_text = st.text_input(first_label, value="10" if method == "Min-max scaling" else "11", key=f"prep_first_{parameter_mode}")
+            with columns[1]:
+                second_text = st.text_input(second_label, value="30" if method == "Min-max scaling" else "3", key=f"prep_second_{parameter_mode}")
+        reference_text = ""
+        inverse = False
+        low, high = 0.0, 1.0
+        with st.expander("Reference and output settings", expanded=False):
+            if not supplied:
+                reference_text = st.text_area("Reference data (optional)", value="", key="prep_reference", help="Fit statistics on these training rows, then transform Data. Leave empty to fit on Data.")
+            marker_text = st.text_input("Missing numeric marker (optional)", value="", key="prep_missing_marker", help="For example, -1 if that number represents missing data.")
+            if method != "Mean imputation":
+                inverse = st.checkbox("Reverse the transform", key="prep_inverse")
+            if method == "Min-max scaling":
+                columns = st.columns(2)
+                low = columns[0].number_input("Output minimum", value=0.0, key="prep_range_low")
+                high = columns[1].number_input("Output maximum", value=1.0, key="prep_range_high")
+        submitted = st.form_submit_button("Transform", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        details = prepare_data(
+            parse_numeric_array(raw, allow_missing=True), method,
+            reference=parse_numeric_array(reference_text, allow_missing=True) if reference_text.strip() else None,
+            first=parse_numeric_array(first_text) if first_text is not None else None,
+            second=parse_numeric_array(second_text) if second_text is not None else None,
+            output_range=(low, high), inverse=inverse,
+            missing_marker=parse_number(marker_text) if marker_text.strip() else None,
+        )
+    except Exception as exc:
+        st.error(str(exc))
+        return
+    render_matrix("prepared_data", details["result"])
+    record_matrix("prepared_data", method, details["result"], kind="output")
+    with st.expander("Parameters used", expanded=False):
+        first_label, second_label = ("Minimum", "Maximum") if method == "Min-max scaling" else ("Mean", "Standard deviation")
+        table = {"Feature": np.arange(1, details["result"].shape[1] + 1), first_label: details["first"], "Missing input entries": details["missing"]}
+        if details["second"] is not None:
+            table[second_label] = details["second"]
+        st.dataframe(pd.DataFrame(table), hide_index=True, width="stretch")
+        st.caption("Scaling does not clip values outside the reference range or make a distribution Gaussian.")
+
+
+def render_model_shapes(shapes):
+    st.dataframe(pd.DataFrame({"Matrix": ["Design X", "Weights W", "Primal X.T @ X", "Dual X @ X.T"],
+                              "Shape": [f"{shapes[name][0]} x {shapes[name][1]}" for name in ("design", "weights", "primal", "dual")]}), hide_index=True, width="stretch")
+    st.caption(f"Auto ridge uses {shapes['recommended_form']} based on these dimensions.")
+
+
+def render_statistics_panel():
+    st.subheader("Quartiles and data summary")
+    with st.form("statistics_form"):
+        raw = st.text_area("Observations", value="1;2;3;4;8;9;10;12", key="stats_data", help="One observation per row; multiple columns are summarized separately.")
+        with st.expander("Quartile convention", expanded=False):
+            convention = st.selectbox("Method", ("Median of halves", "Linear interpolation"), key="stats_convention")
+            st.caption("Median of halves excludes the middle observation when the sample count is odd. For a single observation both quartiles equal that value.")
+        submitted = st.form_submit_button("Summarize", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        details = descriptive_statistics(parse_numeric_array(raw), convention)
+    except Exception as exc:
+        st.error(str(exc))
+        return
+    names = {"minimum": "Minimum", "q1": "Q1", "median": "Median", "q3": "Q3", "maximum": "Maximum", "iqr": "IQR"}
+    st.dataframe(pd.DataFrame({"Feature": np.arange(1, len(details["q1"])+1), **{label: details[key] for key, label in names.items()}}), hide_index=True, width="stretch")
+    st.caption(f"{details['count']} observations per feature. Quartiles: {convention.lower()}.")
+    summary = np.column_stack([details[key] for key in names])
+    record_matrix("quartile_summary", "Columns: minimum, Q1, median, Q3, maximum, IQR", summary, kind="output")
+    with st.expander("Mean, spread, and outlier fences", expanded=False):
+        st.dataframe(pd.DataFrame({"Feature": np.arange(1, len(details["q1"])+1), "Mean": details["mean"], "Population std": details["population_std"], "Lower fence": details["lower_fence"], "Upper fence": details["upper_fence"]}), hide_index=True, width="stretch")
+        st.caption("Fences are Q1 - 1.5 IQR and Q3 + 1.5 IQR.")
+
+
+def render_normal_equations_panel():
+    regularization = st.selectbox("Regularization", ("None", "Ridge"), key="normal_regularization")
+    st.caption("Enter supplied X.T @ X and X.T @ Y directly. Ridge uses SSE + Lambda times squared coefficient norm and penalizes every coefficient.")
+    with st.form("normal_equations_form"):
+        columns = st.columns(2)
+        with columns[0]:
+            gram, _ = matrix_input("X.T @ X", "normal_gram", default="4 0;0 9")
+        with columns[1]:
+            rhs, _ = matrix_input("X.T @ Y", "normal_rhs", default="8;18")
+        ridge_lambda = st.number_input("Lambda", min_value=0.0, value=1.0, key="normal_lambda") if regularization == "Ridge" else 0.0
+        with st.expander("Optional prediction", expanded=False):
+            prediction_rows, prediction_status = matrix_input("Model rows for prediction", "normal_predict", default="")
+            st.caption("Include any bias or polynomial terms yourself, in the same order as the summary matrix columns.")
+        submitted = st.form_submit_button("Solve", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        if gram is None or rhs is None:
+            raise ValueError("Both summary matrices are required.")
+        if prediction_status == "invalid":
+            raise ValueError("Correct the optional prediction rows or leave them empty.")
+        details = solve_normal_equations(gram, rhs, ridge_lambda)
+        prediction = None
+        if prediction_rows is not None:
+            if prediction_rows.shape[1] != details["w"].shape[0]:
+                raise ValueError("Prediction rows must have one column per coefficient.")
+            prediction = prediction_rows @ details["w"]
+    except Exception as exc:
+        st.error(str(exc))
+        return
+    render_matrix("w", details["w"])
+    record_matrix("summary_weights", "Normal equation summaries", details["w"], kind="trained matrix w")
+    if prediction is not None:
+        render_matrix("prediction", prediction)
+        record_matrix("summary_prediction", "Normal equation prediction", prediction, kind="output")
+    with st.expander("Equation check", expanded=False):
+        render_matrix("regularized_gram", details["regularized_gram"])
+        render_matrix("normal_equation_residual", details["normal_residual"])
+        st.caption("Training SSE cannot be recovered from X.T @ X and X.T @ Y alone.")
+
+
+def render_polynomial_features_panel():
+    st.caption("Count and inspect full monomials of total degree up to the selected order. No training targets are needed.")
+    with st.form("polynomial_features_form"):
+        columns = st.columns(3)
+        n_features = columns[0].number_input("Input features", min_value=1, max_value=100, value=3, step=1, key="features_count")
+        degree = columns[1].number_input("Polynomial order", min_value=1, max_value=12, value=2, step=1, key="features_degree")
+        include_bias = columns[2].checkbox("Include constant", value=True, key="features_bias")
+        with st.expander("Evaluate points and check model sizes", expanded=False):
+            points, point_status = matrix_input("Points (optional)", "features_points", default="")
+            columns = st.columns(2)
+            samples = columns[0].number_input("Training samples", min_value=1, value=9, step=1, key="features_samples")
+            outputs = columns[1].number_input("Target outputs", min_value=1, value=1, step=1, key="features_outputs")
+        submitted = st.form_submit_button("Preview", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        if point_status == "invalid":
+            raise ValueError("Correct the optional points or leave them empty.")
+        details = polynomial_features_details(int(n_features), int(degree), points, include_bias)
+        shapes = regression_shapes(int(samples), details["count"], int(outputs))
+    except Exception as exc:
+        st.error(str(exc))
+        return
+    st.metric("Monomial coefficients", details["count"])
+    st.dataframe(pd.DataFrame({"Column": np.arange(1, details["count"] + 1), "Monomial": details["names"]}), hide_index=True, width="stretch")
+    if details["transformed"] is not None:
+        render_matrix("polynomial_features", details["transformed"])
+        record_matrix("polynomial_features", "Feature map preview", details["transformed"], kind="output")
+    with st.expander("Matrix dimensions", expanded=False):
+        render_model_shapes(shapes)
+
+
+def render_function_panel():
+    st.subheader("Functions and derivatives at a point")
+    interpretation = st.selectbox("Interpret result as", ("Numeric values", "Sign classification", "Class scores"), key="function_interpretation")
+    with st.form("function_analysis_form"):
+        raw = st.text_area("Function outputs", value="x1**2 + 3*x1*x2 + 2*x2**2", key="function_expressions", help="Separate vector outputs with new lines or semicolons. Use * for multiplication and ** for powers.")
+        with st.expander("Variable order", expanded=False):
+            variable_text = st.text_input("Variables (optional)", value="", key="function_variables", help="Comma-separated names. Include unused inputs to keep the intended Jacobian shape; otherwise order is inferred alphabetically.")
+        try:
+            _, symbols = parse_functions(raw, variable_text.split(",") if variable_text.strip() else None)
+            names = [str(symbol) for symbol in symbols]
+        except Exception:
+            names = []
+        st.caption("Coordinate order: " + (", ".join(names) or "none; constants need no coordinates"))
+        point_text = st.text_input("Point coordinates", value="1,-1", key="function_point")
+        submitted = st.form_submit_button("Evaluate", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        details = analyze_functions(raw, parse_initial_values(point_text, len(names)), variable_text.split(",") if variable_text.strip() else None)
+        if interpretation == "Sign classification" and details["value"].size != 1:
+            raise ValueError("Sign classification needs exactly one scalar output.")
+    except Exception as exc:
+        st.error(str(exc))
+        return
+    render_matrix("function_value", details["value"])
+    record_matrix("function_value", "Function evaluation", details["value"], kind="output")
+    if interpretation == "Sign classification":
+        label = int(np.sign(details["value"].item()))
+        st.metric("Predicted label", label)
+        record_matrix("function_class", "Score sign", [[label]], kind="output")
+        with st.expander("Decision boundary", expanded=False):
+            score = details["expressions"][0]
+            st.latex(sp.latex(score) + " = 0")
+            if score == 0:
+                st.caption("The score is zero everywhere.")
+            elif not score.free_symbols:
+                st.caption("This nonzero constant score has no zero boundary.")
+            else:
+                symbol = sorted(score.free_symbols, key=lambda item: item.name)[-1]
+                try:
+                    if sp.diff(score, symbol, 2) == 0 and sp.diff(score, symbol) != 0:
+                        solution = sp.solve(score, symbol)
+                        if len(solution) == 1:
+                            st.latex(sp.latex(symbol) + " = " + sp.latex(solution[0]))
+                except (NotImplementedError, ValueError):
+                    pass
+    elif interpretation == "Class scores":
+        label = int(np.argmax(details["value"]))
+        st.metric("Predicted class index", label)
+        st.caption("Indices start at 0, in output order. Ties select the first output; scores need not be probabilities.")
+        record_matrix("function_class", "Largest score", [[label]], kind="output")
+    if details["variables"]:
+        name = "gradient" if details["gradient"] is not None else "jacobian"
+        derivatives = details["jacobian_at_point"].T if name == "gradient" else details["jacobian_at_point"]
+        render_matrix(name, derivatives)
+        record_matrix(name, "Point derivatives", derivatives, kind="output")
+        st.caption(f"Jacobian: {len(details['expressions'])} output rows x {len(details['variables'])} input columns.")
+    with st.expander("Symbolic derivatives and function structure", expanded=False):
+        st.latex("f = " + sp.latex(sp.Matrix(details["expressions"])))
+        if details["variables"]:
+            st.latex("J = " + sp.latex(details["jacobian"]))
+            if details["hessian"] is not None:
+                st.latex("H = " + sp.latex(details["hessian"]))
+                render_matrix("hessian_at_point", details["hessian_at_point"])
+        st.dataframe(pd.DataFrame({"Output": np.arange(1, len(details["dependence"]) + 1), "Dependence on inputs": details["dependence"]}), hide_index=True, width="stretch")
+
+
 def render_solve_tab():
-    st.subheader("Solve Linear System")
+    st.subheader("Solve a linear system")
+    st.caption("Find the weights, inspect the fitted values, and check the error.")
     with st.form("solve_form", border=True):
         equation = st.selectbox("Equation", ("Xw = y", "wX = y"), key="solve_equation")
         col_x, col_y = st.columns(2)
@@ -361,7 +911,7 @@ def render_solve_tab():
             X, _ = matrix_input("X", "solve_x", default="1 1\n1 2\n1 3")
         with col_y:
             y, _ = matrix_input("y", "solve_y", default="2\n3\n4")
-        submitted = st.form_submit_button("Solve")
+        submitted = st.form_submit_button("Solve", type="primary")
 
     if submitted:
         save_persisted_state()
@@ -408,7 +958,14 @@ def render_solve_tab():
 
 
 def render_regression_tab():
-    st.subheader("Regression And Classification")
+    st.subheader("Regression and classification")
+    workflow = st.selectbox("Regression task", ("Fit from samples", "Use normal equation summaries", "Explore polynomial features"), key="reg_workflow")
+    if workflow == "Use normal equation summaries":
+        render_normal_equations_panel()
+        return
+    if workflow == "Explore polynomial features":
+        render_polynomial_features_panel()
+        return
     settings = st.columns(4)
     with settings[0]:
         model_type = st.selectbox("Model", ("Linear", "Polynomial"), key="reg_model_type")
@@ -464,7 +1021,7 @@ def render_regression_tab():
             with test_col_y:
                 Y_test, y_test_status = matrix_input("Y_test (optional)", "reg_y_test", default="", allow_mixed=allow_mixed_y)
 
-        submitted = st.form_submit_button("Fit")
+        submitted = st.form_submit_button("Fit", type="primary")
 
     if submitted:
         save_persisted_state()
@@ -541,6 +1098,19 @@ def render_regression_tab():
     with right:
         render_matrix("mse", result["mse"])
 
+    with st.expander("Normal equations and error checks", expanded=False):
+        diagnostics = result["diagnostics"]
+        render_metrics({"Total SSE": format_number(diagnostics["total_sse"]),
+                        "SSE per sample across outputs": format_number(diagnostics["sse_per_sample"]),
+                        "Ridge objective" if regularization == "Ridge" else "SSE objective": format_number(diagnostics["objective"])})
+        render_matrix("X_transpose_X", diagnostics["gram"])
+        render_matrix("X_transpose_Y", diagnostics["rhs"])
+        render_matrix("residual_E", diagnostics["residual"])
+        render_matrix("X_transpose_E", diagnostics["normal_residual"])
+        render_matrix("objective_gradient", diagnostics["objective_gradient"])
+        st.caption("At an optimum, the objective gradient is approximately zero. For ordinary least squares, X.T @ E is approximately zero; ridge also includes the penalty term.")
+        render_model_shapes(diagnostics["shapes"])
+
     if X_test is not None:
         st.markdown("#### Test Prediction")
         render_matrix(r"\hat{Y}_{test}", result["test_pred"])
@@ -558,14 +1128,15 @@ def render_regression_tab():
 
 
 def render_pearson_tab():
-    st.subheader("Pearson Correlation")
+    st.subheader("Pearson correlation")
+    st.caption("Measure the linear relationship between your variables.")
     with st.form("pearson_form", border=True):
         col_x, col_y = st.columns(2)
         with col_x:
             X, _ = matrix_input("X", "pearson_x", default="1 1\n2 1\n3 2\n4 2")
         with col_y:
             Y, _ = matrix_input("Y", "pearson_y", default="2 1\n4 1\n6 2\n8 2")
-        submitted = st.form_submit_button("Calculate")
+        submitted = st.form_submit_button("Calculate", type="primary")
 
     if submitted:
         save_persisted_state()
@@ -601,7 +1172,17 @@ def render_pearson_tab():
 
 
 def render_gradient_tab():
-    st.subheader("Gradient Descent")
+    mode = st.selectbox("Gradient task", ("Gradient descent", "Function and derivatives at a point", "Check a minimum point", "Differentiate a matrix expression"), key="gradient_mode")
+    if mode == "Check a minimum point":
+        render_minimum_panel()
+        return
+    if mode == "Differentiate a matrix expression":
+        render_matrix_derivative_panel()
+        return
+    if mode == "Function and derivatives at a point":
+        render_function_panel()
+        return
+    st.subheader("Gradient descent")
     with st.form("gradient_form", border=True):
         cost_expression = st.text_input(
             "Cost function C(...)",
@@ -625,7 +1206,7 @@ def render_gradient_tab():
             iterations = st.number_input("Iterations", min_value=1, max_value=10000, value=10, step=1, key="gradient_iterations")
         with controls[2]:
             tolerance_text = st.text_input("Tolerance", value="", key="gradient_tolerance")
-        submitted = st.form_submit_button("Run")
+        submitted = st.form_submit_button("Run", type="primary")
 
     if submitted:
         save_persisted_state()
@@ -665,8 +1246,95 @@ def render_gradient_tab():
     render_matrix("final_parameters", final_values)
 
 
+def render_minimum_panel():
+    st.subheader("Check a minimum point")
+    st.caption("Check a supplied point of a scalar function. This tests unconstrained smooth interior points; a zero gradient alone does not prove a minimum.")
+    with st.form("minimum_form"):
+        raw = st.text_input("Function f", value="(x-3)^2+2", key="minimum_expression", help="Use ^ or ** for powers and * for multiplication. Multiple variables are supported.")
+        with st.expander("Variable order", expanded=False):
+            variable_text = st.text_input("Variables (optional)", value="", key="minimum_variables")
+        try:
+            _, symbols = parse_functions(raw, variable_text.split(",") if variable_text.strip() else None)
+            names = [str(symbol) for symbol in symbols]
+        except Exception:
+            names = []
+        st.caption("Coordinate order: " + (", ".join(names) or "specify variables for a constant function"))
+        point = st.text_input("Candidate point", value="3", key="minimum_point", help="Comma-separated exact values, such as 1/3,0 or pi/2. Use * for multiplication.")
+        submitted = st.form_submit_button("Check point", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        coordinates = [item.strip() for item in point.split(",") if item.strip()]
+        details = check_minimum(raw, coordinates, variable_text.split(",") if variable_text.strip() else None)
+    except Exception as exc:
+        st.error(str(exc))
+        return
+    if details["is_minimum"] is True:
+        st.success(details["classification"])
+    elif details["is_minimum"] is False:
+        st.info(details["classification"])
+    else:
+        st.warning("Inconclusive")
+    st.write(details["reason"])
+    st.metric("Function value at candidate", format_number(details["value"]))
+    record_matrix("minimum_value", "Function at candidate point", [[details["value"]]], kind="output")
+    with st.expander("Derivative checks", expanded=False):
+        st.latex(r"\nabla f = " + sp.latex(details["gradient"]))
+        st.latex("H = " + sp.latex(details["hessian"]))
+        for key in ("gradient_at_point", "hessian_at_point"):
+            if details[key] is not None:
+                render_matrix(key, details[key])
+                record_matrix("minimum_" + key, "Minimum point derivative check", details[key], kind="output")
+        if details["eigenvalues"] is not None:
+            st.caption("Hessian eigenvalues: " + ", ".join(format_number(value) for value in details["eigenvalues"]))
+        st.caption("A local minimum is not automatically a global minimum. A global result is reported only when the tool has a convex quadratic certificate. Higher derivative checks for one variable stop at order 12.")
+
+
+def render_matrix_derivative_panel():
+    st.subheader("Differentiate a matrix expression")
+    st.caption("MATLAB-style arithmetic for real scalars, vectors, and matrices. Scalar outputs give a gradient; matrix outputs give a Jacobian.")
+    with st.form("matrix_derivative_form"):
+        expression = st.text_area("Matrix expression", value="x'*A*x", key="matdiff_expression")
+        definitions = st.text_area("Matrices and constants", value="A = [1 2;0 3]\nsyms x [2 1] real", key="matdiff_definitions", help="Numeric assignments, symbolic entries, or syms declarations. One definition per line or separated by semicolons.")
+        variable = st.text_input("Differentiate with respect to", value="x", key="matdiff_variable")
+        with st.expander("Evaluate at values (optional)", expanded=False):
+            evaluation = st.text_area("Numeric assignments", value="", key="matdiff_evaluation", help="For example: x = [1;1]. Leave empty to keep the derivative symbolic.")
+        with st.expander("Supported MATLAB syntax", expanded=False):
+            st.code("x'*A*x\nnorm(X*w-y)^2 + lambda*(w'*w)\ntrace(W'*W)\nsum((X*W-Y).^2,'all')\nsyms A [2 2] real\nsyms lambda real", language="matlab")
+            st.caption("Use *, /, \\, ^ for matrix operations; .*, ./, .^ for elementwise operations. Both ' and .' transpose real matrices. Functions: trace, norm, sum, det, inv, diag, transpose, eye, zeros, ones, sin, cos, tan, exp, log, sqrt, abs. Matrix norms require 'fro'; matrix / and \\ require square invertible operands. Indexing is one-based. No loops, scripts, complex arithmetic, or full MATLAB execution.")
+        submitted = st.form_submit_button("Differentiate", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        details = differentiate_matrix(expression, definitions, variable, evaluation)
+    except Exception as exc:
+        st.error(str(exc))
+        return
+    derivative = details["gradient"] if details["gradient"] is not None else details["jacobian"]
+    label = "Gradient" if details["gradient"] is not None else "Jacobian"
+    st.markdown(f"#### {label}")
+    st.latex(sp.latex(derivative))
+    st.caption("Entry order: " + ", ".join(details["variables"]) + ". Jacobians flatten outputs and inputs column by column; a scalar gradient keeps the variable's shape.")
+    if details["derivative_at_point"] is not None:
+        render_matrix("derivative_at_point", details["derivative_at_point"])
+        record_matrix("matrix_derivative", "Matrix expression derivative", details["derivative_at_point"], kind="output")
+    elif evaluation.strip():
+        st.caption("Some symbols still have no numeric value; the derivative remains symbolic.")
+    with st.expander("Expanded expression, value, and Hessian", expanded=False):
+        st.latex("f = " + sp.latex(details["value"]))
+        if details["value_at_point"] is not None:
+            render_matrix("expression_value", details["value_at_point"])
+            record_matrix("matrix_expression_value", "Matrix expression value", details["value_at_point"], kind="output")
+        if details["hessian"] is not None:
+            st.latex("H = " + sp.latex(details["hessian"]))
+            if details["hessian_at_point"] is not None:
+                render_matrix("hessian_at_point", details["hessian_at_point"])
+
+
 def render_decision_tree_tab():
-    st.subheader("Decision Tree")
+    st.subheader("Decision trees")
     mode = st.selectbox("Mode", ("Classification impurity", "Regression MSE / split"), key="tree_mode")
     if mode == "Classification impurity":
         render_classification_tree_panel()
@@ -680,7 +1348,7 @@ def render_classification_tree_panel():
         class_counts, _ = matrix_input("Class counts by node", "tree_counts", default="8 5 5\n6 4 0\n2 1 5")
         includes_parent = st.checkbox("First row is the parent node", value=True, key="tree_includes_parent")
         measure = st.selectbox("Impurity measure", ("all", *CLASSIFICATION_MEASURES), key="tree_measure")
-        submitted = st.form_submit_button("Calculate")
+        submitted = st.form_submit_button("Calculate", type="primary")
 
     if submitted:
         save_persisted_state()
@@ -735,7 +1403,7 @@ def render_regression_tree_panel():
             threshold_text = st.text_input("Decision threshold", value="", key="tree_threshold")
         with controls[1]:
             find_best = st.checkbox("Find best one-level split", value=True, key="tree_find_best")
-        submitted = st.form_submit_button("Calculate")
+        submitted = st.form_submit_button("Calculate", type="primary")
 
     if submitted:
         save_persisted_state()
@@ -784,7 +1452,8 @@ def render_regression_tree_panel():
 
 
 def render_kmeans_tab():
-    st.subheader("K-means Clustering")
+    st.subheader("K-means clustering")
+    st.caption("Follow how points settle into clusters from your initial centroids.")
     with st.form("kmeans_form", border=True):
         col_x, col_c = st.columns(2)
         with col_x:
@@ -792,7 +1461,7 @@ def render_kmeans_tab():
         with col_c:
             centroids, _ = matrix_input("Initial centroids", "kmeans_centroids", default="1 1\n5 7")
         max_iterations_text = st.text_input("Max iterations", value="", key="kmeans_max_iterations")
-        submitted = st.form_submit_button("Run")
+        submitted = st.form_submit_button("Run", type="primary")
 
     if submitted:
         save_persisted_state()
@@ -834,8 +1503,202 @@ def render_kmeans_tab():
             st.dataframe(kmeans_iteration_frame(item["assignments"]), width="stretch", hide_index=True)
 
 
+def _probability_table(raw):
+    table = parse_numeric_array(raw, allow_missing=True)
+    if table.shape[1] != 2:
+        raise ValueError("Enter two values per row in the displayed column order.")
+    return table
+
+
+def render_probability_equations_panel():
+    st.caption("Use events A, B, and C. Enter known probabilities and mark unknowns with ???. * means intersection, + means union, | means conditional probability, and ~ means complement. Independence is not assumed.")
+    with st.form("probability_equations_form"):
+        raw = st.text_area("Known probabilities and unknowns", value="a = 0.4\na*b = 0.1\na+b = 0.7\na|b = 0.25\nb = ???", key="probability_equations",
+                           help="P(A) notation also works. Three-event examples: a*b*c, a+b+c, a|(b+c), ~c. Use one assignment per line; decimals, fractions and percentages are accepted.")
+        related = st.checkbox("Show related probabilities", value=False, key="probability_equations_related")
+        submitted = st.form_submit_button("Solve", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        solution = solve_probabilities(raw, include_related=related)
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    answers = solution["results"]
+    st.dataframe(pd.DataFrame([{"Probability": answer["expression"], "Status": answer["status"].title(),
+                               "Answer": format_probability_result(answer)} for answer in answers]),
+                 hide_index=True, width="stretch")
+    for answer in answers:
+        if answer["value"] is not None and not answer["undefined_possible"]:
+            record_matrix(answer["expression"], "Solved probability", [[float(answer["value"])]], kind="output")
+    if solution["related"]:
+        with st.expander("Related probabilities", expanded=True):
+            st.dataframe(pd.DataFrame([{"Probability": answer["expression"], "Answer": format_probability_result(answer)}
+                                       for answer in solution["related"]]), hide_index=True, width="stretch")
+    with st.expander("Probability rules"):
+        for identity in solution["identities"]:
+            st.code(identity, language=None)
+        st.caption("A*B is an event intersection, not multiplication of P(A) and P(B). Bounds use [ ] for included endpoints and ( ) for excluded endpoints. Fractions are treated exactly.")
+
+
+def render_probability_tab():
+    st.subheader("Probability")
+    mode = st.selectbox("Probability task", ("Discrete distribution", "Bayes update", "Two events", "Solve from known probabilities", "Continuous density", "Sampling without replacement", "Compare grouped rates"), key="probability_mode")
+    if mode == "Solve from known probabilities":
+        render_probability_equations_panel()
+        return
+    if mode == "Sampling without replacement":
+        render_sampling_panel()
+        return
+    if mode == "Compare grouped rates":
+        render_rates_panel()
+        return
+    if mode == "Discrete distribution":
+        comparison = st.selectbox("Event", (">=", ">", "<=", "<", "=", "between"), key="pmf_comparison")
+        with st.form("discrete_probability_form"):
+            raw = st.text_area("Outcome and probability", value="-2 1/4\n0 ?\n3 1/2", key="pmf_table", help="One outcome-probability pair per row. Use ? for at most one unknown probability.")
+            boundary = st.text_input("Lower bound" if comparison == "between" else "Boundary", value="0", key="pmf_boundary")
+            upper = st.text_input("Upper bound (inclusive)", value="3", key="pmf_upper") if comparison == "between" else None
+            submitted = st.form_submit_button("Calculate", type="primary")
+        if not submitted:
+            return
+        save_persisted_state()
+        try:
+            table = _probability_table(raw)
+            details = discrete_distribution(table[:, 0], table[:, 1], comparison, parse_number(boundary), parse_number(upper) if upper is not None else None)
+        except Exception as exc:
+            st.error(str(exc))
+            return
+        render_metrics({"Event probability": format_number(details["event_probability"]), "Mean": format_number(details["mean"]), "Variance": format_number(details["variance"]), "Standard deviation": format_number(details["std"])})
+        st.dataframe(pd.DataFrame({"Outcome": details["outcomes"], "Probability": details["probabilities"], "Inferred": details["unknown"]}), hide_index=True, width="stretch")
+        record_matrix("distribution", "Completed probability distribution", np.column_stack((details["outcomes"], details["probabilities"])), kind="output")
+        record_matrix("event_probability", "Discrete event", [[details["event_probability"]]], kind="output")
+        with st.expander("Cumulative probabilities", expanded=False):
+            unique = np.unique(details["outcomes"])
+            st.dataframe(pd.DataFrame({"x": unique, "P(X <= x)": [np.sum(details["probabilities"][details["outcomes"] <= value]) for value in unique]}), hide_index=True, width="stretch")
+    elif mode == "Bayes update":
+        st.caption("Rows are mutually exclusive, exhaustive groups. Enter P(group) followed by P(event | group); one prior may be ?. Posterior groups keep the same row order.")
+        with st.form("bayes_form"):
+            raw = st.text_area("Prior and event likelihood", value="0.30 0.10\n0.70 0.04", key="bayes_table")
+            observed = st.selectbox("Observation", ("Event occurred", "Event did not occur"), key="bayes_observed")
+            submitted = st.form_submit_button("Calculate", type="primary")
+        if not submitted:
+            return
+        save_persisted_state()
+        try:
+            table = _probability_table(raw)
+            details = bayes_update(table[:, 0], table[:, 1], observed == "Event occurred")
+        except Exception as exc:
+            st.error(str(exc))
+            return
+        st.metric("Probability of observed evidence", format_number(details["evidence"]))
+        st.dataframe(pd.DataFrame({"Group row": np.arange(1, len(details["priors"]) + 1), "Prior": details["priors"], "Observed likelihood": details["likelihoods"], "Joint probability": details["joint"], "Posterior": details["posterior"]}), hide_index=True, width="stretch")
+        record_matrix("posterior", "Bayes update", details["posterior"].reshape(-1, 1), kind="output")
+        st.caption("Posterior = prior times observed likelihood, divided by the total evidence probability.")
+    elif mode == "Two events":
+        known_kind = st.selectbox("Known probability", ("Intersection", "Union"), key="event_known_kind")
+        with st.form("events_form"):
+            columns = st.columns(3)
+            p_a = columns[0].number_input("P(A)", min_value=0.0, max_value=1.0, value=0.5, key="event_pa")
+            p_b = columns[1].number_input("P(B)", min_value=0.0, max_value=1.0, value=0.4, key="event_pb")
+            known = columns[2].number_input(f"P(A {known_kind.lower()} B)", min_value=0.0, max_value=1.0, value=0.2, key="event_known")
+            submitted = st.form_submit_button("Calculate", type="primary")
+        if not submitted:
+            return
+        save_persisted_state()
+        try:
+            details = event_probabilities(p_a, p_b, known, known_kind.lower())
+        except Exception as exc:
+            st.error(str(exc))
+            return
+        render_metrics({"Intersection": format_number(details["intersection"]), "Union": format_number(details["union"]),
+                        "P(A | B)": format_number(details["p_a_given_b"]) if details["p_a_given_b"] is not None else "undefined",
+                        "P(B | A)": format_number(details["p_b_given_a"]) if details["p_b_given_a"] is not None else "undefined"})
+        st.write(f"Independent: {'yes' if details['independent'] else 'no'}. Mutually exclusive: {'yes' if details['mutually_exclusive'] else 'no'}.")
+        with st.expander("Joint table", expanded=False):
+            st.dataframe(pd.DataFrame(details["joint_table"], index=["A", "not A"], columns=["B", "not B"]), width="stretch")
+        record_matrix("joint_probability_table", "Two events", details["joint_table"], kind="output")
+    else:
+        st.caption("Integrate a continuous density on a finite support interval. The calculator verifies nonnegativity and total area 1 before returning a probability.")
+        with st.form("density_form"):
+            raw = st.text_input("Density f(x)", value="2*x", key="density_expression")
+            columns = st.columns(2)
+            support_low = columns[0].number_input("Support minimum", value=0.0, key="density_support_low")
+            support_high = columns[1].number_input("Support maximum", value=1.0, key="density_support_high")
+            query_low = columns[0].number_input("Query minimum", value=0.5, key="density_query_low")
+            query_high = columns[1].number_input("Query maximum", value=1.0, key="density_query_high")
+            submitted = st.form_submit_button("Integrate", type="primary")
+        if not submitted:
+            return
+        save_persisted_state()
+        try:
+            details = density_probability(raw, support_low, support_high, query_low, query_high)
+        except Exception as exc:
+            st.error(str(exc))
+            return
+        st.latex("f(x) = " + sp.latex(details["expression"]))
+        render_metrics({"Total area": format_number(details["total_area"]), "Interval probability": format_number(details["probability"])})
+        st.caption("The density is zero outside the support. Interval probabilities are areas; the probability at one exact point is zero.")
+        record_matrix("interval_probability", "Continuous density integral", [[details["probability"]]], kind="output")
+
+
+def render_sampling_panel():
+    st.caption("Draw uniformly without replacement from a finite bag. X counts the marked items drawn.")
+    comparison = st.selectbox("Event", (">=", ">", "<=", "<", "=", "between"), key="sampling_comparison")
+    with st.form("sampling_form"):
+        cols = st.columns(3)
+        total = cols[0].number_input("Total items", min_value=1, max_value=10000, value=6, step=1, key="sampling_total")
+        marked = cols[1].number_input("Marked items", min_value=0, max_value=10000, value=2, step=1, key="sampling_marked")
+        draws = cols[2].number_input("Number of draws", min_value=0, max_value=1000, value=2, step=1, key="sampling_draws")
+        boundary = st.number_input("Lower count" if comparison == "between" else "Count boundary", min_value=0, value=1, step=1, key="sampling_boundary")
+        upper = st.number_input("Upper count (inclusive)", min_value=0, value=2, step=1, key="sampling_upper") if comparison == "between" else None
+        submitted = st.form_submit_button("Calculate", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        details = sampling_without_replacement(total, marked, draws, comparison, boundary, upper)
+    except Exception as exc:
+        st.error(str(exc))
+        return
+    st.metric("Event probability", format_number(details["event_probability"]))
+    st.caption("Exact probability: " + str(details["exact_probability"]))
+    record_matrix("sampling_probability", "Without-replacement event", [[details["event_probability"]]], kind="output")
+    with st.expander("Count distribution and formula", expanded=False):
+        st.latex(r"P(X=k) = \frac{\binom{K}{k}\binom{N-K}{n-k}}{\binom{N}{n}}")
+        st.dataframe(pd.DataFrame({"Marked items drawn": details["outcomes"], "Probability": details["probabilities"]}), hide_index=True, width="stretch")
+
+
+def render_rates_panel():
+    st.caption("One row per group: A successes, A total, B successes, B total. Pooled rates use counts, so groups with different sizes have different weights.")
+    with st.form("rates_form"):
+        raw = st.text_area("Grouped counts", value="9 10 80 100\n20 100 1 10", key="rates_table")
+        submitted = st.form_submit_button("Compare", type="primary")
+    if not submitted:
+        return
+    save_persisted_state()
+    try:
+        details = compare_grouped_rates(parse_numeric_array(raw))
+    except Exception as exc:
+        st.error(str(exc))
+        return
+    st.dataframe(pd.DataFrame({"Group": np.arange(1, len(details["rates"])+1), "A rate": details["rates"][:, 0], "B rate": details["rates"][:, 1]}), hide_index=True, width="stretch")
+    render_metrics({"Pooled A rate": format_number(details["pooled"][0]), "Pooled B rate": format_number(details["pooled"][1])})
+    if details["reversal"]:
+        st.info("Simpson's reversal: the method ahead in every group is behind overall.")
+    else:
+        st.caption("No reversal between all group comparisons and the pooled comparison.")
+    record_matrix("grouped_rates", "Per-group A and B rates", details["rates"], kind="output")
+    record_matrix("pooled_rates", "Pooled A and B rates", details["pooled"].reshape(1, -1), kind="output")
+    with st.expander("Pooling weights", expanded=False):
+        st.dataframe(pd.DataFrame({"Group": np.arange(1, len(details["rates"])+1), "A weight": details["weights"][:, 0], "B weight": details["weights"][:, 1]}), hide_index=True, width="stretch")
+        st.caption("Pooled rate = total successes / total cases; it is not the unweighted average of group percentages.")
+
+
 def render_cache_tab():
-    st.subheader("Cache")
+    st.subheader("Saved calculations")
+    st.caption("Copy a previous result or reuse it as the input for your next calculation.")
     ensure_cache_limit()
     cache = st.session_state.matrix_cache
     top_left, top_middle, top_right = st.columns([1, 1.2, 2.8])
@@ -1052,6 +1915,7 @@ def fit_regression_model(
     train_pred = model_matrix @ w
     sse, mse = squared_error_summary(target_matrix, train_pred)
     train_class = classify_predictions(train_pred, resolved_target_mode, class_labels)
+    diagnostics = regression_diagnostics(model_matrix, target_matrix, w, ridge_lambda if regularization == "Ridge" else 0)
 
     test_pred = None
     test_class = None
@@ -1093,6 +1957,7 @@ def fit_regression_model(
         "test_target_matrix": test_target_matrix,
         "test_sse": None if test_sse is None else np.asarray(test_sse).reshape(1, -1),
         "test_mse": None if test_mse is None else np.asarray(test_mse).reshape(1, -1),
+        "diagnostics": diagnostics,
     }
 
 
@@ -1190,12 +2055,14 @@ def infer_expression_variables(cost_expression):
 
 
 def parse_initial_values(raw_text, expected):
+    if expected == 0 and not raw_text.strip():
+        return np.array([], dtype=float)
     parts = [part.strip() for part in raw_text.replace("−", "-").replace("–", "-").split(",")]
     if any(not part for part in parts):
         raise ValueError("Enter one initial value per variable, separated by commas.")
     if len(parts) != expected:
         raise ValueError(f"Expected {expected} initial value(s), got {len(parts)}.")
-    return np.asarray([float(part) for part in parts], dtype=float)
+    return np.asarray([parse_number(part) for part in parts], dtype=float)
 
 
 def parse_optional_positive_int(raw_text, label):
@@ -1479,12 +2346,12 @@ def clipboard_button(text, label, entry_id):
             width: 100%;
             height: 32px;
             box-sizing: border-box;
-            border: 1px solid rgba(49, 51, 63, 0.18);
+            border: 1px solid #355d55;
             border-radius: 6px;
             padding: 0 0.55rem;
             margin: 0;
-            background: #ffffff;
-            color: #111827;
+            background: #1c3937;
+            color: #85efce;
             cursor: pointer;
             display: inline-flex;
             align-items: center;
@@ -1494,8 +2361,12 @@ def clipboard_button(text, label, entry_id):
             white-space: nowrap;
         }}
         #{button_id}:hover {{
-            border-color: rgba(49, 51, 63, 0.32);
-            background: #f8fafc;
+            border-color: #6ee7c0;
+            background: #244c45;
+        }}
+        #{button_id}:focus-visible {{
+            outline: 2px solid #6ee7c0;
+            outline-offset: -3px;
         }}
         </style>
         <button id="{button_id}">{safe_label}</button>
